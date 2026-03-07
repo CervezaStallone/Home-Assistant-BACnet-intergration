@@ -8,10 +8,6 @@ A production-ready [Home Assistant](https://www.home-assistant.io/) custom integ
 
 ---
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=CervezaStallone&repository=Home-Assistant-BACnet-intergration&category=integration)
-
----
-
 ## Key Features
 
 | Category | What you get |
