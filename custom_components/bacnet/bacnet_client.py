@@ -112,11 +112,11 @@ class BACnetClient:
     # ------------------------------------------------------------------
 
     def _build_app_args(self) -> tuple:
-        """Prepare address string and device object for app construction."""
+        """Prepare Address object and device object for app construction."""
         if self._local_ip:
-            local_addr = f"{self._local_ip}:{self._local_port}"
+            local_addr = Address(f"{self._local_ip}:{self._local_port}")
         else:
-            local_addr = f"0.0.0.0:{self._local_port}"
+            local_addr = Address(f"0.0.0.0:{self._local_port}")
 
         device_object = DeviceObject(
             objectIdentifier=("device", 999999),
