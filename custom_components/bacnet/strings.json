@@ -42,7 +42,7 @@
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to the BACnet network. Verify your network settings.",
+      "cannot_connect": "Failed to connect to the BACnet network. Verify your network settings and check the Home Assistant logs for details.",
       "no_devices_found": "No BACnet devices were discovered on the network.",
       "no_objects_found": "No readable BACnet objects were found on this device.",
       "bbmd_registration_failed": "Foreign Device Registration with the BBMD failed. Verify the BBMD address.",
