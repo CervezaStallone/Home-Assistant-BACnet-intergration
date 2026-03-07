@@ -171,6 +171,74 @@ class BACnetClient:
             self._app = NormalApplication(device_object, local_addr)
             _LOGGER.info("BACnet client connected on %s (type=%s)", local_addr, type(self._app).__name__)
 
+        # Wait for the UDP transport to be ready.  The NormalApplication
+        # constructor schedules UDP endpoint creation as background tasks.
+        # If we don't await them here, the first who_is / read_property may
+        # silently fail because the socket is not yet bound.
+        await self._wait_for_transport()
+
+    def _get_datagram_server(self):
+        """Return the IPv4DatagramServer from the application stack.
+
+        NormalApplication stores it at ``app.normal.server``;
+        ForeignApplication stores it at ``app.server``.
+        """
+        if self._app is None:
+            return None
+        # NormalApplication wraps it inside NormalLinkLayer
+        if hasattr(self._app, "normal"):
+            return getattr(self._app.normal, "server", None)
+        # ForeignApplication exposes it directly
+        return getattr(self._app, "server", None)
+
+    async def _wait_for_transport(self, timeout: float = 5.0) -> None:
+        """Await the UDP transport tasks so the socket is actually bound.
+
+        BACpypes3 schedules ``create_datagram_endpoint`` as background tasks
+        in the ``IPv4DatagramServer`` constructor.  If the requested port is
+        already in use, ``retrying_create_datagram_endpoint`` keeps retrying
+        forever — our timeout detects that and raises early.
+        """
+        server = self._get_datagram_server()
+        if server is None:
+            _LOGGER.warning("Cannot locate IPv4DatagramServer — skipping transport check")
+            return
+
+        tasks = getattr(server, "_transport_tasks", [])
+        if tasks:
+            _LOGGER.debug("Waiting up to %.0fs for UDP transport …", timeout)
+            try:
+                await asyncio.wait_for(asyncio.gather(*tasks), timeout=timeout)
+                server._transport_tasks = []
+            except asyncio.TimeoutError:
+                _LOGGER.error(
+                    "UDP socket failed to bind within %.0fs — port %d may "
+                    "already be in use. Try a different 'Local port' (e.g. 47809).",
+                    timeout,
+                    self._local_port,
+                )
+                raise RuntimeError(
+                    f"UDP port {self._local_port} could not be bound "
+                    f"(already in use?). Choose a different local port."
+                ) from None
+
+        # Log the actual bound address
+        transport = getattr(server, "local_transport", None)
+        if transport is not None:
+            sock = transport.get_extra_info("socket")
+            if sock is not None:
+                bound = sock.getsockname()
+                _LOGGER.info(
+                    "UDP transport ready — actually bound to %s:%s", bound[0], bound[1]
+                )
+            else:
+                _LOGGER.debug("UDP transport ready (socket details unavailable)")
+        else:
+            _LOGGER.warning(
+                "UDP transport is None after awaiting tasks — "
+                "network communication will likely fail"
+            )
+
     async def disconnect(self) -> None:
         """Shut down the BACpypes3 application and release the UDP socket."""
         # Cancel all COV tasks
@@ -297,6 +365,23 @@ class BACnetClient:
             type(self._app).__name__,
         )
 
+        # Verify transport is live
+        server = self._get_datagram_server()
+        if server is not None:
+            transport = getattr(server, "local_transport", None)
+            if transport is None:
+                _LOGGER.error(
+                    "UDP transport is not ready — cannot send BACnet packets. "
+                    "Port %d may already be in use on this host.",
+                    self._local_port,
+                )
+                return None
+            sock = transport.get_extra_info("socket")
+            if sock is not None:
+                _LOGGER.debug("UDP socket bound to %s", sock.getsockname())
+        else:
+            _LOGGER.warning("Cannot locate IPv4DatagramServer for transport check")
+
         # Strategy 1: directed Who-Is → I-Am
         try:
             who_is_kwargs: dict[str, Any] = {"address": addr, "timeout": 5}
@@ -386,7 +471,16 @@ class BACnetClient:
                 )
                 continue
 
-        _LOGGER.warning("Could not identify device at %s", device_address)
+        _LOGGER.warning(
+            "Could not identify device at %s. "
+            "Verify: (1) the device is on the same subnet or reachable via BBMD, "
+            "(2) UDP port 47808 is not blocked by a firewall, "
+            "(3) if Home Assistant runs in Docker, use --network=host, "
+            "(4) try a different 'Local port' (e.g. 47809) in case port %d is "
+            "already in use on this host.",
+            device_address,
+            self._local_port,
+        )
         return None
 
     # ------------------------------------------------------------------
