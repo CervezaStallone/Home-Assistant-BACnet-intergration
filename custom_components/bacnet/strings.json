@@ -3,17 +3,19 @@
     "step": {
       "user": {
         "title": "BACnet IP Network Configuration",
-        "description": "Configure the local BACnet/IP network interface. If your BACnet devices are on a different subnet or VLAN, enable BBMD / Foreign Device Registration below.",
+        "description": "Configure the local BACnet/IP network interface. To add a specific device by IP address, fill in the target address below. Leave it empty to discover all devices on the network automatically.",
         "data": {
-          "local_ip": "Local IP address",
+          "local_ip": "Local IP address (bind)",
           "local_port": "BACnet/IP port",
+          "target_address": "Target device address",
           "use_bbmd": "Enable BBMD / Foreign Device Registration",
           "bbmd_address": "BBMD address (IP:port)",
           "bbmd_ttl": "Foreign Device TTL (seconds)"
         },
         "data_description": {
-          "local_ip": "The IP address of the network interface to bind to (e.g. 192.168.1.100). Leave empty for auto-detect.",
+          "local_ip": "The IP address of this Home Assistant server's network interface to bind to (e.g. 192.168.1.100). This is NOT the BACnet device address. Leave empty for auto-detect.",
           "local_port": "Default BACnet/IP port is 47808 (0xBAC0).",
+          "target_address": "IP address of the BACnet device to add (e.g. 192.168.1.50 or 192.168.1.50:47808). Leave empty to discover devices automatically via Who-Is broadcast.",
           "use_bbmd": "Enable this if BACnet devices are on another subnet/VLAN and a BBMD is available.",
           "bbmd_address": "IP address and port of the BBMD (e.g. 192.168.2.1:47808).",
           "bbmd_ttl": "Time-to-live for the Foreign Device Registration in seconds."
@@ -43,7 +45,8 @@
     },
     "error": {
       "cannot_connect": "Failed to connect to the BACnet network. Verify your network settings and check the Home Assistant logs for details.",
-      "no_devices_found": "No BACnet devices were discovered on the network.",
+      "no_devices_found": "No BACnet devices were discovered on the network. Try entering the device IP address in the 'Target device address' field.",
+      "device_unreachable": "Could not reach the BACnet device at the specified address. Verify the IP address and port.",
       "no_objects_found": "No readable BACnet objects were found on this device.",
       "bbmd_registration_failed": "Foreign Device Registration with the BBMD failed. Verify the BBMD address.",
       "invalid_ip": "The provided IP address is not valid.",

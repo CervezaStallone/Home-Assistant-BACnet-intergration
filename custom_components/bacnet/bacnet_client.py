@@ -249,6 +249,82 @@ class BACnetClient:
         return devices
 
     # ------------------------------------------------------------------
+    # Manual device identification (unicast)
+    # ------------------------------------------------------------------
+
+    async def read_device_info(self, device_address: str) -> dict[str, Any] | None:
+        """Read device identity from a known IP address (unicast).
+
+        Sends a Who-Is with low/high limits to a specific address, or
+        falls back to reading the Device object directly.  Returns a
+        dict compatible with the discovery result format:
+            {"device_id": int, "device_name": str, "address": str}
+
+        Returns None if the device does not respond.
+        """
+        if self._app is None:
+            raise RuntimeError("Client not connected")
+
+        addr = Address(device_address)
+
+        # Strategy 1: directed Who-Is → I-Am
+        try:
+            i_am_list = await self._app.who_is(address=addr, timeout=3)
+            if i_am_list:
+                i_am = i_am_list[0]
+                device_id = i_am.iAmDeviceIdentifier[1]
+                device_name = f"Device {device_id}"
+                try:
+                    name = await self._app.read_property(
+                        addr,
+                        ObjectIdentifier(("device", device_id)),
+                        "objectName",
+                    )
+                    if name:
+                        device_name = str(name)
+                except Exception:  # noqa: BLE001
+                    pass
+                return {
+                    "device_id": device_id,
+                    "device_name": device_name,
+                    "address": device_address,
+                }
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Directed Who-Is failed for %s, trying Device object read", device_address)
+
+        # Strategy 2: try reading device,X objectIdentifier for common IDs
+        # Many devices have device ID in their object list; read objectList
+        # and look for the device object.
+        try:
+            # Read objectList from device,4194303 (wildcard ID is not BACnet
+            # standard, so instead we attempt device,1 first then iterate).
+            for test_id in (1, 0, 2, 100, 1000):
+                try:
+                    oid = ObjectIdentifier(("device", test_id))
+                    obj_id = await self._app.read_property(addr, oid, "objectIdentifier")
+                    if obj_id is not None:
+                        device_id = obj_id[1]
+                        device_name = f"Device {device_id}"
+                        try:
+                            name = await self._app.read_property(addr, oid, "objectName")
+                            if name:
+                                device_name = str(name)
+                        except Exception:  # noqa: BLE001
+                            pass
+                        return {
+                            "device_id": device_id,
+                            "device_name": device_name,
+                            "address": device_address,
+                        }
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception:  # noqa: BLE001
+            pass
+
+        _LOGGER.warning("Could not identify device at %s", device_address)
+        return None
+
+    # ------------------------------------------------------------------
     # Object list and property reads
     # ------------------------------------------------------------------
 

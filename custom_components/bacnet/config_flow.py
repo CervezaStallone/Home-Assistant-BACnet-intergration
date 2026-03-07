@@ -30,6 +30,7 @@ from .const import (
     CONF_LOCAL_PORT,
     CONF_SELECT_ALL,
     CONF_SELECTED_OBJECTS,
+    CONF_TARGET_ADDRESS,
     CONF_USE_BBMD,
     DEFAULT_BBMD_TTL,
     DEFAULT_PORT,
@@ -136,6 +137,12 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if local_ip and not _validate_ip(local_ip):
                 errors["base"] = "invalid_ip"
 
+            target_address = user_input.get(CONF_TARGET_ADDRESS, "").strip()
+            if target_address:
+                # Validate target address (IP or IP:port)
+                if not _validate_bbmd_address(target_address):
+                    errors[CONF_TARGET_ADDRESS] = "invalid_ip"
+
             use_bbmd = user_input.get(CONF_USE_BBMD, False)
             bbmd_address = user_input.get(CONF_BBMD_ADDRESS, "").strip()
             if use_bbmd and not _validate_bbmd_address(bbmd_address):
@@ -146,6 +153,7 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._network_config = {
                     CONF_LOCAL_IP: local_ip,
                     CONF_LOCAL_PORT: user_input.get(CONF_LOCAL_PORT, DEFAULT_PORT),
+                    CONF_TARGET_ADDRESS: target_address,
                     CONF_USE_BBMD: use_bbmd,
                     CONF_BBMD_ADDRESS: bbmd_address if use_bbmd else "",
                     CONF_BBMD_TTL: user_input.get(CONF_BBMD_TTL, DEFAULT_BBMD_TTL)
@@ -159,6 +167,7 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Optional(CONF_LOCAL_IP, default=""): str,
                 vol.Optional(CONF_LOCAL_PORT, default=DEFAULT_PORT): vol.Coerce(int),
+                vol.Optional(CONF_TARGET_ADDRESS, default=""): str,
                 vol.Optional(CONF_USE_BBMD, default=False): bool,
                 vol.Optional(CONF_BBMD_ADDRESS, default=""): str,
                 vol.Optional(CONF_BBMD_TTL, default=DEFAULT_BBMD_TTL): vol.Coerce(int),
@@ -216,8 +225,21 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     bbmd_ttl=self._network_config.get(CONF_BBMD_TTL, 900),
                 )
 
-                # Send Who-Is and collect I-Am responses
-                self._discovered_devices = await client.discover_devices(timeout=5)
+                # Check if user specified a target address (manual entry)
+                target = self._network_config.get(CONF_TARGET_ADDRESS, "")
+                if target:
+                    # Manual device entry — skip broadcast, unicast to device
+                    # Append default BACnet port if not specified
+                    if ":" not in target:
+                        target = f"{target}:47808"
+                    device_info = await client.read_device_info(target)
+                    if device_info:
+                        self._discovered_devices = [device_info]
+                    else:
+                        errors["base"] = "device_unreachable"
+                else:
+                    # Broadcast Who-Is discovery
+                    self._discovered_devices = await client.discover_devices(timeout=5)
             except Exception as exc:  # noqa: BLE001
                 _LOGGER.error(
                     "Discovery failed: %s (%s)", exc, type(exc).__name__
@@ -245,6 +267,10 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             default=self._network_config.get(CONF_LOCAL_PORT, DEFAULT_PORT),
                         ): vol.Coerce(int),
                         vol.Optional(
+                            CONF_TARGET_ADDRESS,
+                            default=self._network_config.get(CONF_TARGET_ADDRESS, ""),
+                        ): str,
+                        vol.Optional(
                             CONF_USE_BBMD,
                             default=self._network_config.get(CONF_USE_BBMD, False),
                         ): bool,
@@ -260,6 +286,13 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
                 errors=errors,
             )
+
+        # --- If only one device found (e.g. manual entry), auto-select it ---
+        if len(self._discovered_devices) == 1 and user_input is None:
+            self._selected_device = self._discovered_devices[0]
+            await self.async_set_unique_id(str(self._selected_device["device_id"]))
+            self._abort_if_unique_id_configured()
+            return await self.async_step_select_objects()
 
         # --- Build device selection dropdown ---
         device_options = {

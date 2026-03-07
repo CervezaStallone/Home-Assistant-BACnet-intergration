@@ -20,6 +20,7 @@ CONF_USE_BBMD = "use_bbmd"
 CONF_DEVICE_ID = "device_id"
 CONF_DEVICE_NAME = "device_name"
 CONF_DEVICE_ADDRESS = "device_address"
+CONF_TARGET_ADDRESS = "target_address"
 
 # Object selection
 CONF_SELECTED_OBJECTS = "selected_objects"
