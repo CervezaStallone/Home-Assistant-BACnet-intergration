@@ -1,3 +1,5 @@
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=CervezaStallone&repository=Home-Assistant-BACnet-intergration&category=integration)
+
 # BACnet IP Integration for Home Assistant
 
 A production-ready [Home Assistant](https://www.home-assistant.io/) custom integration that brings full **BACnet/IP** support to your smart-home or building-automation setup. Built on top of [BACpypes3](https://github.com/JoelBender/BACpypes3) — the modern, async-first Python BACnet stack.
