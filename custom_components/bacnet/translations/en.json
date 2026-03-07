@@ -8,6 +8,7 @@
           "local_ip": "Local IP address (bind)",
           "local_port": "BACnet/IP port",
           "target_address": "Target device address",
+          "target_device_id": "Device ID (instance)",
           "use_bbmd": "Enable BBMD / Foreign Device Registration",
           "bbmd_address": "BBMD address (IP:port)",
           "bbmd_ttl": "Foreign Device TTL (seconds)"
@@ -16,6 +17,7 @@
           "local_ip": "The IP address of this Home Assistant server's network interface to bind to (e.g. 192.168.1.100). This is NOT the BACnet device address. Leave empty for auto-detect.",
           "local_port": "Default BACnet/IP port is 47808 (0xBAC0).",
           "target_address": "IP address of the BACnet device to add (e.g. 192.168.1.50 or 192.168.1.50:47808). Leave empty to discover devices automatically via Who-Is broadcast.",
+          "target_device_id": "BACnet Device Object Instance number (DOI). Only used when a target address is specified. Leave at 0 to auto-detect.",
           "use_bbmd": "Enable this if BACnet devices are on another subnet/VLAN and a BBMD is available.",
           "bbmd_address": "IP address and port of the BBMD (e.g. 192.168.2.1:47808).",
           "bbmd_ttl": "Time-to-live for the Foreign Device Registration in seconds."

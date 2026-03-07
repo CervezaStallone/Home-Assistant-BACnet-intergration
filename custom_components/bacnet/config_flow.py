@@ -31,6 +31,7 @@ from .const import (
     CONF_SELECT_ALL,
     CONF_SELECTED_OBJECTS,
     CONF_TARGET_ADDRESS,
+    CONF_TARGET_DEVICE_ID,
     CONF_USE_BBMD,
     DEFAULT_BBMD_TTL,
     DEFAULT_PORT,
@@ -154,6 +155,7 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_LOCAL_IP: local_ip,
                     CONF_LOCAL_PORT: user_input.get(CONF_LOCAL_PORT, DEFAULT_PORT),
                     CONF_TARGET_ADDRESS: target_address,
+                    CONF_TARGET_DEVICE_ID: user_input.get(CONF_TARGET_DEVICE_ID, 0) or 0,
                     CONF_USE_BBMD: use_bbmd,
                     CONF_BBMD_ADDRESS: bbmd_address if use_bbmd else "",
                     CONF_BBMD_TTL: user_input.get(CONF_BBMD_TTL, DEFAULT_BBMD_TTL)
@@ -168,6 +170,7 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_LOCAL_IP, default=""): str,
                 vol.Optional(CONF_LOCAL_PORT, default=DEFAULT_PORT): vol.Coerce(int),
                 vol.Optional(CONF_TARGET_ADDRESS, default=""): str,
+                vol.Optional(CONF_TARGET_DEVICE_ID, default=0): vol.Coerce(int),
                 vol.Optional(CONF_USE_BBMD, default=False): bool,
                 vol.Optional(CONF_BBMD_ADDRESS, default=""): str,
                 vol.Optional(CONF_BBMD_TTL, default=DEFAULT_BBMD_TTL): vol.Coerce(int),
@@ -232,7 +235,10 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     # Append default BACnet port if not specified
                     if ":" not in target:
                         target = f"{target}:47808"
-                    device_info = await client.read_device_info(target)
+                    target_dev_id = self._network_config.get(CONF_TARGET_DEVICE_ID, 0)
+                    device_info = await client.read_device_info(
+                        target, device_id=target_dev_id or None
+                    )
                     if device_info:
                         self._discovered_devices = [device_info]
                     else:
@@ -270,6 +276,10 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_TARGET_ADDRESS,
                             default=self._network_config.get(CONF_TARGET_ADDRESS, ""),
                         ): str,
+                        vol.Optional(
+                            CONF_TARGET_DEVICE_ID,
+                            default=self._network_config.get(CONF_TARGET_DEVICE_ID, 0),
+                        ): vol.Coerce(int),
                         vol.Optional(
                             CONF_USE_BBMD,
                             default=self._network_config.get(CONF_USE_BBMD, False),

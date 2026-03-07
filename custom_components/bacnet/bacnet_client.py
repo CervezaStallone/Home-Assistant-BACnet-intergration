@@ -253,20 +253,27 @@ class BACnetClient:
     # ------------------------------------------------------------------
 
     async def read_device_info(
-        self, device_address: str, timeout: float = 10.0
+        self,
+        device_address: str,
+        device_id: int | None = None,
+        timeout: float = 10.0,
     ) -> dict[str, Any] | None:
         """Read device identity from a known IP address (unicast).
 
         Sends a directed Who-Is to a specific address, or falls back to
-        reading the Device object directly.  Returns a dict compatible
-        with the discovery result format:
+        reading the Device object directly.  When *device_id* is provided
+        the Who-Is uses low/high limits and the fallback reads that
+        specific Device object instead of guessing common IDs.
+
+        Returns a dict compatible with the discovery result format:
             {"device_id": int, "device_name": str, "address": str}
 
         Returns None if the device does not respond within *timeout* seconds.
         """
         try:
             return await asyncio.wait_for(
-                self._read_device_info_inner(device_address), timeout=timeout
+                self._read_device_info_inner(device_address, device_id),
+                timeout=timeout,
             )
         except asyncio.TimeoutError:
             _LOGGER.warning(
@@ -274,7 +281,9 @@ class BACnetClient:
             )
             return None
 
-    async def _read_device_info_inner(self, device_address: str) -> dict[str, Any] | None:
+    async def _read_device_info_inner(
+        self, device_address: str, known_device_id: int | None = None
+    ) -> dict[str, Any] | None:
         """Internal implementation of read_device_info (no outer timeout)."""
         if self._app is None:
             raise RuntimeError("Client not connected")
@@ -283,7 +292,11 @@ class BACnetClient:
 
         # Strategy 1: directed Who-Is → I-Am
         try:
-            i_am_list = await self._app.who_is(address=addr, timeout=3)
+            who_is_kwargs: dict[str, Any] = {"address": addr, "timeout": 3}
+            if known_device_id is not None:
+                who_is_kwargs["low_limit"] = known_device_id
+                who_is_kwargs["high_limit"] = known_device_id
+            i_am_list = await self._app.who_is(**who_is_kwargs)
             if i_am_list:
                 i_am = i_am_list[0]
                 device_id = i_am.iAmDeviceIdentifier[1]
@@ -312,8 +325,15 @@ class BACnetClient:
                 device_address,
             )
 
-        # Strategy 2: try reading device,X objectIdentifier for common IDs
-        for test_id in (1, 0, 2, 100, 1000):
+        # Strategy 2: read the Device object directly
+        # If user provided a device ID, try that first; otherwise guess common IDs
+        ids_to_try: list[int]
+        if known_device_id is not None:
+            ids_to_try = [known_device_id]
+        else:
+            ids_to_try = [1, 0, 2, 100, 1000]
+
+        for test_id in ids_to_try:
             try:
                 oid = ObjectIdentifier(("device", test_id))
                 obj_id = await asyncio.wait_for(
