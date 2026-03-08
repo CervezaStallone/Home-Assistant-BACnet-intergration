@@ -175,7 +175,16 @@ class BACnetClient:
         # constructor schedules UDP endpoint creation as background tasks.
         # If we don't await them here, the first who_is / read_property may
         # silently fail because the socket is not yet bound.
-        await self._wait_for_transport()
+        try:
+            await self._wait_for_transport()
+        except Exception:
+            # Transport failed — clean up the app so the port is released.
+            try:
+                self._app.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self._app = None
+            raise
 
     def _get_datagram_server(self):
         """Return the IPv4DatagramServer from the application stack.

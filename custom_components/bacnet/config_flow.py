@@ -211,6 +211,10 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # --- Perform discovery ---
         if not self._discovered_devices:
+            # Clean up any client from a previous attempt so the UDP
+            # port is released before we try to bind it again.
+            await self._cleanup_client()
+
             from .bacnet_client import BACnetClient  # noqa: WPS433
 
             client = BACnetClient(
@@ -251,8 +255,12 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "Discovery failed: %s (%s)", exc, type(exc).__name__
                 )
                 errors["base"] = "cannot_connect"
+                # Connection failed — disconnect immediately so the port
+                # is released for the next retry.
+                await client.disconnect()
+                client = None
             finally:
-                self._client = client  # keep for object reads
+                self._client = client  # keep for object reads (may be None)
                 # Client stays open until flow ends or we close it
 
         if not errors and not self._discovered_devices:
