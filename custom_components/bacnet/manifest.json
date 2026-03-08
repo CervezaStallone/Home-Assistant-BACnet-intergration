@@ -8,6 +8,6 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/CervezaStallone/Home-Assistant-BACnet-intergration/issues",
   "requirements": ["BACpypes3==0.0.99"],
-  "version": "1.0.11",
+  "version": "1.0.12",
   "integration_type": "hub"
 }

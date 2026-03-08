@@ -514,8 +514,15 @@ class BACnetClient:
         objects: list[dict[str, Any]] = []
 
         # 1. Read the Object List property from the Device object
+        _LOGGER.debug("Reading objectList from %s device,%d", device_address, device_id)
         try:
-            object_list = await self._app.read_property(addr, device_oid, "objectList")
+            object_list = await asyncio.wait_for(
+                self._app.read_property(addr, device_oid, "objectList"),
+                timeout=15,
+            )
+        except asyncio.TimeoutError:
+            _LOGGER.error("Timeout reading objectList from %s", device_address)
+            raise
         except Exception as exc:
             _LOGGER.error("Failed to read objectList from %s: %s", device_address, exc)
             raise
@@ -524,11 +531,15 @@ class BACnetClient:
             _LOGGER.warning("objectList is None for device %s", device_id)
             return objects
 
+        _LOGGER.debug("objectList returned %d entries", len(object_list) if hasattr(object_list, '__len__') else -1)
+
         # 2. Iterate and read metadata for each supported object type
         for oid in object_list:
             obj_type_str, instance = oid
-            # Convert string type name to integer type code
-            obj_type_int = self._object_type_str_to_int(obj_type_str)
+            # Convert to plain int — ObjectType is an int subclass with
+            # a custom __str__ that returns hyphenated names, which would
+            # create inconsistent keys after JSON round-tripping.
+            obj_type_int = int(obj_type_str) if isinstance(obj_type_str, int) else self._object_type_str_to_int(obj_type_str)
             if obj_type_int is None or obj_type_int not in SUPPORTED_OBJECT_TYPES:
                 continue
 
@@ -572,13 +583,13 @@ class BACnetClient:
                     commandable = True
 
             return {
-                "object_type": obj_type,
-                "instance": instance,
+                "object_type": int(obj_type),
+                "instance": int(instance),
                 "object_name": str(object_name),
                 "description": str(description),
                 "units": str(units) if units is not None else None,
                 "present_value": self._coerce_value(present_value),
-                "commandable": commandable,
+                "commandable": bool(commandable),
             }
         except Exception as exc:  # noqa: BLE001
             _LOGGER.warning(
@@ -595,7 +606,11 @@ class BACnetClient:
                 self._app.read_property(addr, oid, prop_name),
                 timeout=5,
             )
-        except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+        except asyncio.TimeoutError:
+            return None
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
             return None
 
     # ------------------------------------------------------------------
@@ -974,10 +989,19 @@ class BACnetClient:
 
     @classmethod
     def _object_type_str_to_int(cls, type_str: str | int) -> int | None:
-        """Convert BACpypes3 object type string to integer ID."""
+        """Convert BACpypes3 object type string to integer ID.
+
+        BACpypes3 ObjectType is an int subclass with a custom __str__
+        that returns hyphenated names (e.g. 'analog-input').  We always
+        return a plain int to avoid surprises after JSON round-tripping.
+        """
         if isinstance(type_str, int):
-            return type_str
-        return cls._TYPE_STR_TO_INT.get(str(type_str))
+            return int(type_str)  # strip ObjectType wrapper → plain int
+        # Try both camelCase and hyphenated formats
+        result = cls._TYPE_STR_TO_INT.get(str(type_str))
+        if result is None:
+            result = cls._TYPE_STR_TO_INT.get(str(type_str).replace('-', ''))
+        return result
 
     @classmethod
     def _int_to_object_type_str(cls, type_int: int) -> str:

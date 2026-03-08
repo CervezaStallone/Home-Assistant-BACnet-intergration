@@ -377,18 +377,29 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # --- Read object list from device (first visit to this step) ---
         if not self._discovered_objects:
             if self._client is None:
+                _LOGGER.error("Cannot read objects — BACnet client is None")
                 errors["base"] = "cannot_connect"
             else:
                 try:
+                    _LOGGER.debug(
+                        "Reading object list from device %s at %s",
+                        self._selected_device.get("device_id"),
+                        self._selected_device.get("address"),
+                    )
                     self._discovered_objects = await self._client.read_object_list(
                         device_address=self._selected_device.get("address", ""),
                         device_id=self._selected_device["device_id"],
                     )
+                    _LOGGER.debug(
+                        "Object list read complete: %d objects found",
+                        len(self._discovered_objects),
+                    )
                 except Exception as exc:  # noqa: BLE001
                     _LOGGER.error(
-                        "Failed to read object list from device %s: %s",
+                        "Failed to read object list from device %s: %s (%s)",
                         self._selected_device.get("device_id"),
                         exc,
+                        type(exc).__name__,
                     )
                     errors["base"] = "no_objects_found"
 
@@ -403,18 +414,32 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         # --- Build multi-select checkbox list ---
-        object_options: dict[str, str] = {
-            _object_key(obj): _object_label(obj) for obj in self._discovered_objects
-        }
-
-        schema = vol.Schema(
-            {
-                vol.Optional(CONF_SELECT_ALL, default=False): bool,
-                vol.Optional(
-                    CONF_SELECTED_OBJECTS, default=list(object_options.keys())
-                ): cv.multi_select(object_options),
+        try:
+            object_options: dict[str, str] = {
+                _object_key(obj): _object_label(obj) for obj in self._discovered_objects
             }
-        )
+            _LOGGER.debug(
+                "Building select_objects form with %d options", len(object_options)
+            )
+
+            schema = vol.Schema(
+                {
+                    vol.Optional(CONF_SELECT_ALL, default=False): bool,
+                    vol.Optional(
+                        CONF_SELECTED_OBJECTS, default=list(object_options.keys())
+                    ): cv.multi_select(object_options),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.error(
+                "Failed to build object selection form: %s (%s)", exc, type(exc).__name__
+            )
+            errors["base"] = "unknown"
+            return self.async_show_form(
+                step_id="select_objects",
+                data_schema=vol.Schema({}),
+                errors=errors,
+            )
 
         return self.async_show_form(
             step_id="select_objects",
