@@ -9,6 +9,7 @@ Provides a multi-step GUI configuration:
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 from typing import Any
@@ -298,19 +299,45 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if ":" not in target:
                         target = f"{target}:47808"
                     target_dev_id = self._network_config.get(CONF_TARGET_DEVICE_ID, 0)
+                    _LOGGER.debug(
+                        "Manual device entry: target=%s, device_id=%s",
+                        target, target_dev_id,
+                    )
                     device_info = await client.read_device_info(
                         target, device_id=target_dev_id or None
                     )
                     if device_info:
                         self._discovered_devices = [device_info]
+                        _LOGGER.info(
+                            "Found device: id=%s, name=%s, address=%s",
+                            device_info.get("device_id"),
+                            device_info.get("device_name"),
+                            device_info.get("address"),
+                        )
                     else:
+                        _LOGGER.warning(
+                            "Device unreachable at %s (device_id=%s)",
+                            target, target_dev_id,
+                        )
                         errors["base"] = "device_unreachable"
                 else:
                     # Broadcast Who-Is discovery
                     self._discovered_devices = await client.discover_devices(timeout=5)
+                    _LOGGER.debug(
+                        "Broadcast discovery found %d device(s)",
+                        len(self._discovered_devices),
+                    )
+            except asyncio.CancelledError:
+                _LOGGER.warning("Discovery was cancelled")
+                errors["base"] = "timeout"
+                if not borrowed and client is not None:
+                    await client.disconnect()
+                client = None
+                borrowed = False
             except Exception as exc:  # noqa: BLE001
                 _LOGGER.error(
-                    "Discovery failed: %s (%s)", exc, type(exc).__name__
+                    "Discovery failed: %s (%s)", exc, type(exc).__name__,
+                    exc_info=True,
                 )
                 errors["base"] = "cannot_connect"
                 # Connection failed — disconnect immediately so the port
@@ -453,12 +480,23 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "Object list read complete: %d objects found",
                         len(self._discovered_objects),
                     )
+                    if self._discovered_objects:
+                        _LOGGER.debug(
+                            "First object sample: %s", self._discovered_objects[0]
+                        )
+                except asyncio.CancelledError:
+                    _LOGGER.warning(
+                        "Object list read was cancelled for device %s",
+                        self._selected_device.get("device_id"),
+                    )
+                    errors["base"] = "timeout"
                 except Exception as exc:  # noqa: BLE001
                     _LOGGER.error(
                         "Failed to read object list from device %s: %s (%s)",
                         self._selected_device.get("device_id"),
                         exc,
                         type(exc).__name__,
+                        exc_info=True,
                     )
                     errors["base"] = "no_objects_found"
 
@@ -478,7 +516,9 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _object_key(obj): _object_label(obj) for obj in self._discovered_objects
             }
             _LOGGER.debug(
-                "Building select_objects form with %d options", len(object_options)
+                "Building select_objects form with %d options: %s",
+                len(object_options),
+                list(object_options.keys()),
             )
 
             schema = vol.Schema(
@@ -491,7 +531,9 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         except Exception as exc:  # noqa: BLE001
             _LOGGER.error(
-                "Failed to build object selection form: %s (%s)", exc, type(exc).__name__
+                "Failed to build object selection form: %s (%s)",
+                exc, type(exc).__name__,
+                exc_info=True,
             )
             errors["base"] = "unknown"
             return self.async_show_form(
@@ -504,10 +546,6 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="select_objects",
             data_schema=schema,
             errors=errors,
-            description_placeholders={
-                "device_name": self._selected_device.get("device_name", "BACnet Device"),
-                "object_count": str(len(self._discovered_objects)),
-            },
         )
 
     # ------------------------------------------------------------------

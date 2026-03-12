@@ -16,6 +16,7 @@ import asyncio
 import logging
 from typing import Any, Callable, Union
 
+from bacpypes3.apdu import ErrorRejectAbortNack
 from bacpypes3.ipv4.app import ForeignApplication, NormalApplication
 from bacpypes3.local.device import DeviceObject
 from bacpypes3.pdu import Address, IPv4Address
@@ -413,16 +414,16 @@ class BACnetClient:
                         ),
                         timeout=3,
                     )
-                    if name:
+                    if name and not isinstance(name, ErrorRejectAbortNack):
                         device_name = str(name)
-                except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+                except (asyncio.TimeoutError, ErrorRejectAbortNack, Exception):  # noqa: BLE001
                     _LOGGER.debug("Could not read objectName, using default")
                 return {
                     "device_id": device_id,
                     "device_name": device_name,
                     "address": device_address,
                 }
-        except Exception as exc:  # noqa: BLE001
+        except (ErrorRejectAbortNack, Exception) as exc:  # noqa: BLE001
             _LOGGER.debug(
                 "Strategy 1 (Who-Is) failed for %s: %s (%s)",
                 device_address,
@@ -451,7 +452,7 @@ class BACnetClient:
                     timeout=3,
                 )
                 _LOGGER.debug("  ReadProperty returned: %s", obj_id)
-                if obj_id is not None:
+                if obj_id is not None and not isinstance(obj_id, ErrorRejectAbortNack):
                     device_id = obj_id[1]
                     device_name = f"Device {device_id}"
                     try:
@@ -459,9 +460,9 @@ class BACnetClient:
                             self._app.read_property(addr, oid, "objectName"),
                             timeout=3,
                         )
-                        if name:
+                        if name and not isinstance(name, ErrorRejectAbortNack):
                             device_name = str(name)
-                    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+                    except (asyncio.TimeoutError, ErrorRejectAbortNack, Exception):  # noqa: BLE001
                         _LOGGER.debug("  Could not read objectName")
                     return {
                         "device_id": device_id,
@@ -470,6 +471,11 @@ class BACnetClient:
                     }
             except asyncio.TimeoutError:
                 _LOGGER.debug("  ReadProperty timeout for device,%d", test_id)
+                continue
+            except ErrorRejectAbortNack as exc:
+                _LOGGER.debug(
+                    "  BACnet error for device,%d: %s", test_id, exc
+                )
                 continue
             except Exception as exc:  # noqa: BLE001
                 _LOGGER.debug(
@@ -520,32 +526,92 @@ class BACnetClient:
                 self._app.read_property(addr, device_oid, "objectList"),
                 timeout=15,
             )
+            # read_property may return an error object instead of raising
+            if isinstance(object_list, ErrorRejectAbortNack):
+                _LOGGER.error(
+                    "Device %s returned BACnet error for objectList: %s",
+                    device_address, object_list,
+                )
+                return objects
         except asyncio.TimeoutError:
             _LOGGER.error("Timeout reading objectList from %s", device_address)
             raise
+        except asyncio.CancelledError:
+            _LOGGER.warning("objectList read cancelled for %s", device_address)
+            raise
+        except ErrorRejectAbortNack as exc:
+            _LOGGER.error(
+                "BACnet error reading objectList from %s: %s",
+                device_address, exc,
+            )
+            return objects
         except Exception as exc:
-            _LOGGER.error("Failed to read objectList from %s: %s", device_address, exc)
+            _LOGGER.error(
+                "Failed to read objectList from %s: %s (%s)",
+                device_address, exc, type(exc).__name__,
+                exc_info=True,
+            )
             raise
 
         if object_list is None:
             _LOGGER.warning("objectList is None for device %s", device_id)
             return objects
 
-        _LOGGER.debug("objectList returned %d entries", len(object_list) if hasattr(object_list, '__len__') else -1)
+        # Validate the response is iterable (not a single value)
+        if not hasattr(object_list, '__iter__'):
+            _LOGGER.error(
+                "objectList response is not iterable: %s (%s)",
+                object_list, type(object_list).__name__,
+            )
+            return objects
+
+        try:
+            list_len = len(object_list) if hasattr(object_list, '__len__') else -1
+        except Exception:  # noqa: BLE001
+            list_len = -1
+        _LOGGER.debug(
+            "objectList returned %d entries (type: %s)",
+            list_len, type(object_list).__name__,
+        )
 
         # 2. Iterate and read metadata for each supported object type
         for oid in object_list:
-            obj_type_str, instance = oid
+            try:
+                obj_type_str, instance = oid
+            except (TypeError, ValueError) as exc:
+                _LOGGER.warning(
+                    "Skipping unparseable objectList entry %r: %s", oid, exc
+                )
+                continue
+
             # Convert to plain int — ObjectType is an int subclass with
             # a custom __str__ that returns hyphenated names, which would
             # create inconsistent keys after JSON round-tripping.
             obj_type_int = int(obj_type_str) if isinstance(obj_type_str, int) else self._object_type_str_to_int(obj_type_str)
             if obj_type_int is None or obj_type_int not in SUPPORTED_OBJECT_TYPES:
+                _LOGGER.debug("Skipping unsupported object type: %s (int=%s)", oid, obj_type_int)
                 continue
 
-            obj_info = await self._read_object_metadata(addr, oid, obj_type_int, instance)
-            if obj_info is not None:
-                objects.append(obj_info)
+            try:
+                obj_info = await self._read_object_metadata(addr, oid, obj_type_int, instance)
+                if obj_info is not None:
+                    objects.append(obj_info)
+                    _LOGGER.debug(
+                        "Read metadata for %s:%d — name=%s",
+                        oid, instance, obj_info.get("object_name", "?"),
+                    )
+                else:
+                    _LOGGER.warning("Metadata read returned None for %s:%d", oid, instance)
+            except asyncio.CancelledError:
+                _LOGGER.warning("Metadata read cancelled for %s:%d", oid, instance)
+                # Return whatever we have so far rather than losing everything
+                break
+            except (ErrorRejectAbortNack, Exception) as exc:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Unexpected error reading metadata for %s:%d — %s (%s)",
+                    oid, instance, exc, type(exc).__name__,
+                )
+                continue
 
         _LOGGER.info(
             "Read %d supported objects from device %s (%d)",
@@ -574,6 +640,12 @@ class BACnetClient:
             units = await self._safe_read(addr, oid, "units")
             present_value = await self._safe_read(addr, oid, "presentValue")
 
+            _LOGGER.debug(
+                "Raw values for %s:%d — name=%r, desc=%r, units=%r, pv=%r (type=%s)",
+                oid, instance, object_name, description, units, present_value,
+                type(present_value).__name__ if present_value is not None else "None",
+            )
+
             # Determine if this object is commandable (has a Priority Array)
             commandable = obj_type in COMMANDABLE_TYPES
             if obj_type in POTENTIALLY_WRITABLE_TYPES:
@@ -591,25 +663,44 @@ class BACnetClient:
                 "present_value": self._coerce_value(present_value),
                 "commandable": bool(commandable),
             }
-        except Exception as exc:  # noqa: BLE001
+        except asyncio.CancelledError:
+            _LOGGER.warning("Metadata read cancelled for %s:%d", oid, instance)
+            raise
+        except (ErrorRejectAbortNack, Exception) as exc:  # noqa: BLE001
             _LOGGER.warning(
-                "Failed to read metadata for %s:%d - %s", oid, instance, exc
+                "Failed to read metadata for %s:%d - %s (%s)",
+                oid, instance, exc, type(exc).__name__,
+                exc_info=True,
             )
             return None
 
     async def _safe_read(
         self, addr: Address, oid: ObjectIdentifier, prop_name: str
     ) -> Any | None:
-        """Read a single property, returning None on any error or timeout."""
+        """Read a single property, returning None on any error or timeout.
+
+        BACpypes3 v0.0.99 quirk: when a device responds with a BACnet Error
+        (e.g. ``unknown-property``), the library raises
+        ``ErrorRejectAbortNack`` which extends ``BaseException`` — NOT
+        ``Exception``.  A bare ``except Exception`` will miss it, so we
+        catch it explicitly.
+        """
         try:
-            return await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 self._app.read_property(addr, oid, prop_name),
                 timeout=5,
             )
+            # read_property may also RETURN an error object instead of raising
+            if isinstance(result, ErrorRejectAbortNack):
+                return None
+            return result
         except asyncio.TimeoutError:
             return None
         except asyncio.CancelledError:
             raise
+        except ErrorRejectAbortNack:
+            # BACnet error response (e.g. property does not exist on device)
+            return None
         except Exception:  # noqa: BLE001
             return None
 
@@ -734,7 +825,7 @@ class BACnetClient:
             _LOGGER.debug("Write successful")
             return True
 
-        except Exception as exc:  # noqa: BLE001
+        except (ErrorRejectAbortNack, Exception) as exc:  # noqa: BLE001
             _LOGGER.error(
                 "Write failed for %s:%d.%s = %s: %s",
                 type_str,
@@ -840,7 +931,7 @@ class BACnetClient:
             _LOGGER.info("COV subscription active for %s:%d", type_str, instance)
             return sub_key
 
-        except Exception as exc:  # noqa: BLE001
+        except (ErrorRejectAbortNack, Exception) as exc:  # noqa: BLE001
             _LOGGER.warning(
                 "COV subscription failed for %s:%d at %s: %s. "
                 "Falling back to polling.",
@@ -887,7 +978,7 @@ class BACnetClient:
                         _LOGGER.exception("Error in COV callback for %s", sub_key)
         except asyncio.CancelledError:
             _LOGGER.debug("COV task cancelled for %s", sub_key)
-        except Exception:  # noqa: BLE001
+        except (ErrorRejectAbortNack, Exception):  # noqa: BLE001
             _LOGGER.warning("COV task ended for %s", sub_key, exc_info=True)
 
     async def unsubscribe_cov(self, sub_key: str) -> None:
