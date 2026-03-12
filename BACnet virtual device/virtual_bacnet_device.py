@@ -55,52 +55,46 @@ from bacpypes3.apdu import IAmRequest
 DEVICE_ID       = int(os.environ.get("BACNET_DEVICE_ID", "599"))
 DEVICE_NAME     = os.environ.get("BACNET_DEVICE_NAME", "VirtueleThermostaat")
 DEVICE_ADDRESS  = os.environ.get("BACNET_ADDRESS", "host")
+BACNET_PORT     = int(os.environ.get("BACNET_PORT", "47808"))
 UPDATE_INTERVAL = float(os.environ.get("UPDATE_INTERVAL", "5"))
 
 
 # ---------------------------------------------------------------------------
 #   Object definities
+#   BACpypes3 gebruikt standaard string-namen voor object types
+#   (conform ASHRAE 135 hyphenated conventie).
 # ---------------------------------------------------------------------------
-OBJECT_TYPE_IDS = {
-    "analog-input": 0,
-    "analog-output": 1,
-    "analog-value": 2,
-    "binary-input": 3,
-    "binary-output": 4,
-    "binary-value": 5,
-}
-
 ANALOG_INPUTS = [
     {
-        "id": (OBJECT_TYPE_IDS["analog-input"], 0),
+        "id": ("analog-input", 0),
         "name": "ZoneTemperatuur",
         "value": 21.5,
         "units": "degreesCelsius",
         "description": "Ruimtetemperatuur zone 1",
     },
     {
-        "id": (OBJECT_TYPE_IDS["analog-input"], 1),
+        "id": ("analog-input", 1),
         "name": "Luchtvochtigheid",
         "value": 45.0,
         "units": "percentRelativeHumidity",
         "description": "Relatieve luchtvochtigheid zone 1",
     },
     {
-        "id": (OBJECT_TYPE_IDS["analog-input"], 2),
+        "id": ("analog-input", 2),
         "name": "CO2Concentratie",
         "value": 420.0,
         "units": "partsPerMillion",
         "description": "CO2 concentratie in ppm",
     },
     {
-        "id": (OBJECT_TYPE_IDS["analog-input"], 3),
+        "id": ("analog-input", 3),
         "name": "BuitenTemperatuur",
         "value": 8.0,
         "units": "degreesCelsius",
         "description": "Buitentemperatuur sensor",
     },
     {
-        "id": (OBJECT_TYPE_IDS["analog-input"], 4),
+        "id": ("analog-input", 4),
         "name": "Luchtdruk",
         "value": 1013.25,
         "units": "hectopascals",
@@ -110,14 +104,14 @@ ANALOG_INPUTS = [
 
 ANALOG_OUTPUTS = [
     {
-        "id": (OBJECT_TYPE_IDS["analog-output"], 0),
+        "id": ("analog-output", 0),
         "name": "TemperatuurSetpoint",
         "value": 22.0,
         "units": "degreesCelsius",
         "description": "Gewenste temperatuur setpoint",
     },
     {
-        "id": (OBJECT_TYPE_IDS["analog-output"], 1),
+        "id": ("analog-output", 1),
         "name": "VentilatorSnelheid",
         "value": 50.0,
         "units": "percent",
@@ -127,14 +121,14 @@ ANALOG_OUTPUTS = [
 
 ANALOG_VALUES = [
     {
-        "id": (OBJECT_TYPE_IDS["analog-value"], 0),
+        "id": ("analog-value", 0),
         "name": "EnergieTotaal",
         "value": 15234.5,
         "units": "kilowattHours",
         "description": "Totaal energieverbruik",
     },
     {
-        "id": (OBJECT_TYPE_IDS["analog-value"], 1),
+        "id": ("analog-value", 1),
         "name": "PIDOutput",
         "value": 0.0,
         "units": "percent",
@@ -144,19 +138,19 @@ ANALOG_VALUES = [
 
 BINARY_INPUTS = [
     {
-        "id": (OBJECT_TYPE_IDS["binary-input"], 0),
+        "id": ("binary-input", 0),
         "name": "Bezettingssensor",
         "value": "active",
         "description": "Ruimte bezettingssensor",
     },
     {
-        "id": (OBJECT_TYPE_IDS["binary-input"], 1),
+        "id": ("binary-input", 1),
         "name": "Deursensor",
         "value": "inactive",
         "description": "Deur open/dicht sensor",
     },
     {
-        "id": (OBJECT_TYPE_IDS["binary-input"], 2),
+        "id": ("binary-input", 2),
         "name": "Raamcontact",
         "value": "inactive",
         "description": "Raam open/dicht contact",
@@ -165,13 +159,13 @@ BINARY_INPUTS = [
 
 BINARY_OUTPUTS = [
     {
-        "id": (OBJECT_TYPE_IDS["binary-output"], 0),
+        "id": ("binary-output", 0),
         "name": "Verlichting",
         "value": "active",
         "description": "Verlichting aan/uit",
     },
     {
-        "id": (OBJECT_TYPE_IDS["binary-output"], 1),
+        "id": ("binary-output", 1),
         "name": "AlarmRelais",
         "value": "inactive",
         "description": "Alarm relais uitgang",
@@ -180,13 +174,13 @@ BINARY_OUTPUTS = [
 
 BINARY_VALUES = [
     {
-        "id": (OBJECT_TYPE_IDS["binary-value"], 0),
+        "id": ("binary-value", 0),
         "name": "Nachtmodus",
         "value": "inactive",
         "description": "Nachtmodus actief",
     },
     {
-        "id": (OBJECT_TYPE_IDS["binary-value"], 1),
+        "id": ("binary-value", 1),
         "name": "Onderhoudsmodus",
         "value": "inactive",
         "description": "Onderhoudsmodus actief",
@@ -387,8 +381,8 @@ def print_banner(local_ip: str):
     print(f"  Device Object ID (DOI) : device,{DEVICE_ID}")
     print(f"  Apparaat Naam          : {DEVICE_NAME}")
     print(f"  IP Adres               : {local_ip}")
-    print(f"  BACnet/IP Poort        : 47808 (0xBAC0)")
-    print(f"  Bereikbaar op          : {local_ip}:47808")
+    print(f"  BACnet/IP Poort        : {BACNET_PORT} (0x{BACNET_PORT:04X})")
+    print(f"  Bereikbaar op          : {local_ip}:{BACNET_PORT}")
     print(f"  Update interval        : {UPDATE_INTERVAL}s")
     print("=" * 78)
 
@@ -553,7 +547,7 @@ async def main():
 
     # Maak de BACnet applicatie via NormalApplication
     # (zelfde methode als de HA BACnet integratie gebruikt)
-    local_addr = IPv4Address(f"{local_ip}:47808")
+    local_addr = IPv4Address(f"{local_ip}:{BACNET_PORT}")
     device_object = DeviceObject(
         objectIdentifier=("device", DEVICE_ID),
         objectName=DEVICE_NAME,

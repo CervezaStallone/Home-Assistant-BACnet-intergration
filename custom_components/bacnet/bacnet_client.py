@@ -974,6 +974,7 @@ class BACnetClient:
     # ------------------------------------------------------------------
 
     _TYPE_STR_TO_INT: dict[str, int] = {
+        # camelCase (BACpypes3 internal)
         "analogInput": OBJECT_TYPE_ANALOG_INPUT,
         "analogOutput": OBJECT_TYPE_ANALOG_OUTPUT,
         "analogValue": OBJECT_TYPE_ANALOG_VALUE,
@@ -983,9 +984,31 @@ class BACnetClient:
         "multiStateInput": OBJECT_TYPE_MULTI_STATE_INPUT,
         "multiStateOutput": OBJECT_TYPE_MULTI_STATE_OUTPUT,
         "multiStateValue": OBJECT_TYPE_MULTI_STATE_VALUE,
+        # hyphenated (ASHRAE 135 / BACpypes3 str() output)
+        "analog-input": OBJECT_TYPE_ANALOG_INPUT,
+        "analog-output": OBJECT_TYPE_ANALOG_OUTPUT,
+        "analog-value": OBJECT_TYPE_ANALOG_VALUE,
+        "binary-input": OBJECT_TYPE_BINARY_INPUT,
+        "binary-output": OBJECT_TYPE_BINARY_OUTPUT,
+        "binary-value": OBJECT_TYPE_BINARY_VALUE,
+        "multi-state-input": OBJECT_TYPE_MULTI_STATE_INPUT,
+        "multi-state-output": OBJECT_TYPE_MULTI_STATE_OUTPUT,
+        "multi-state-value": OBJECT_TYPE_MULTI_STATE_VALUE,
     }
 
-    _INT_TO_TYPE_STR: dict[int, str] = {v: k for k, v in _TYPE_STR_TO_INT.items()}
+    # Use hyphenated names for BACpypes3 ObjectIdentifier construction
+    # (matching ASHRAE 135 and BACpypes3's native convention)
+    _INT_TO_TYPE_STR: dict[int, str] = {
+        OBJECT_TYPE_ANALOG_INPUT: "analog-input",
+        OBJECT_TYPE_ANALOG_OUTPUT: "analog-output",
+        OBJECT_TYPE_ANALOG_VALUE: "analog-value",
+        OBJECT_TYPE_BINARY_INPUT: "binary-input",
+        OBJECT_TYPE_BINARY_OUTPUT: "binary-output",
+        OBJECT_TYPE_BINARY_VALUE: "binary-value",
+        OBJECT_TYPE_MULTI_STATE_INPUT: "multi-state-input",
+        OBJECT_TYPE_MULTI_STATE_OUTPUT: "multi-state-output",
+        OBJECT_TYPE_MULTI_STATE_VALUE: "multi-state-value",
+    }
 
     @classmethod
     def _object_type_str_to_int(cls, type_str: str | int) -> int | None:
@@ -994,14 +1017,23 @@ class BACnetClient:
         BACpypes3 ObjectType is an int subclass with a custom __str__
         that returns hyphenated names (e.g. 'analog-input').  We always
         return a plain int to avoid surprises after JSON round-tripping.
+
+        Accepts both camelCase ('analogInput') and hyphenated ('analog-input')
+        formats, case-insensitively.
         """
         if isinstance(type_str, int):
             return int(type_str)  # strip ObjectType wrapper → plain int
-        # Try both camelCase and hyphenated formats
-        result = cls._TYPE_STR_TO_INT.get(str(type_str))
-        if result is None:
-            result = cls._TYPE_STR_TO_INT.get(str(type_str).replace('-', ''))
-        return result
+        s = str(type_str)
+        # Direct lookup (handles both camelCase and hyphenated)
+        result = cls._TYPE_STR_TO_INT.get(s)
+        if result is not None:
+            return result
+        # Case-insensitive fallback
+        s_lower = s.lower()
+        for key, val in cls._TYPE_STR_TO_INT.items():
+            if key.lower() == s_lower:
+                return val
+        return None
 
     @classmethod
     def _int_to_object_type_str(cls, type_int: int) -> str:
