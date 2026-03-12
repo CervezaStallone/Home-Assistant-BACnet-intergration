@@ -23,15 +23,20 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .bacnet_client import BACnetClient
 from .const import (
+    CONF_COV_INCREMENT,
     CONF_DOMAIN_MAPPING,
     CONF_ENABLE_COV,
     CONF_POLLING_INTERVAL,
     CONF_USE_DESCRIPTION,
+    DEFAULT_COV_INCREMENT,
     DEFAULT_DOMAIN_MAP,
     DEFAULT_ENABLE_COV,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_USE_DESCRIPTION,
     DOMAIN,
+    OBJECT_TYPE_ANALOG_INPUT,
+    OBJECT_TYPE_ANALOG_OUTPUT,
+    OBJECT_TYPE_ANALOG_VALUE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,6 +68,7 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         use_description: bool = DEFAULT_USE_DESCRIPTION,
         domain_overrides: dict[str, str] | None = None,
         entry: ConfigEntry | None = None,
+        cov_increment: float = DEFAULT_COV_INCREMENT,
     ) -> None:
         """Initialise the coordinator.
 
@@ -75,6 +81,7 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             use_description: If True, use description (prop 28) for entity names.
             domain_overrides: Per-object HA domain overrides from options flow.
             entry: The ConfigEntry for accessing device addressing info.
+            cov_increment: COV increment for analog objects (0.0 = device default).
         """
         self.client = client
         self.objects = objects
@@ -83,6 +90,7 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.use_description = use_description
         self.domain_overrides = domain_overrides or {}
         self.entry = entry
+        self.cov_increment = cov_increment
 
         # Track which objects have active COV and which need polling
         self._cov_subscriptions: dict[str, str] = {}  # obj_key → sub_key
@@ -156,6 +164,13 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # COV subscription management
     # ------------------------------------------------------------------
 
+    # Analog object types that support covIncrement
+    _ANALOG_TYPES = {
+        OBJECT_TYPE_ANALOG_INPUT,
+        OBJECT_TYPE_ANALOG_OUTPUT,
+        OBJECT_TYPE_ANALOG_VALUE,
+    }
+
     async def _setup_subscriptions(self) -> None:
         """Attempt COV subscriptions for all objects. Objects that fail get polled."""
         self._polled_objects = []
@@ -164,6 +179,32 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             obj_key = f"{obj['object_type']}:{obj['instance']}"
 
             if self.enable_cov:
+                # For analog objects, write the covIncrement to the device
+                # before subscribing so the device uses the user's threshold.
+                if (
+                    self.cov_increment > 0
+                    and obj["object_type"] in self._ANALOG_TYPES
+                ):
+                    try:
+                        await self.client.write_property(
+                            device_address=self.device_address,
+                            object_type=obj["object_type"],
+                            instance=obj["instance"],
+                            property_name="covIncrement",
+                            value=self.cov_increment,
+                        )
+                        _LOGGER.debug(
+                            "Set covIncrement=%.2f for %s",
+                            self.cov_increment,
+                            obj_key,
+                        )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "Could not write covIncrement for %s (device may "
+                            "not support it — using device default)",
+                            obj_key,
+                        )
+
                 sub_key = await self.client.subscribe_cov(
                     device_address=self.device_address,
                     object_type=obj["object_type"],
@@ -179,6 +220,12 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # COV disabled or failed — add to polling list
             self._polled_objects.append(obj)
             _LOGGER.debug("Polling fallback for %s", obj_key)
+
+        _LOGGER.info(
+            "COV subscriptions: %d active, %d polling fallback",
+            len(self._cov_subscriptions),
+            len(self._polled_objects),
+        )
 
         # BACpypes3 change_of_value() context manager handles renewal
         # automatically — no background renewal task needed.

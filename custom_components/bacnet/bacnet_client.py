@@ -269,8 +269,17 @@ class BACnetClient:
     # Device discovery - Who-Is / I-Am
     # ------------------------------------------------------------------
 
-    async def discover_devices(self, timeout: float = 5.0) -> list[dict[str, Any]]:
-        """Send a global Who-Is and collect I-Am responses.
+    async def discover_devices(
+        self,
+        timeout: float = 5.0,
+        target_device_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Send a Who-Is and collect I-Am responses.
+
+        If *target_device_id* is provided, a targeted Who-Is is sent with
+        low_limit == high_limit == target_device_id so the BACnet network
+        only returns that specific device.  Otherwise a global broadcast
+        is sent.
 
         Returns a list of dicts with keys: device_id, device_name, address.
         """
@@ -280,11 +289,22 @@ class BACnetClient:
         devices: list[dict[str, Any]] = []
         seen_ids: set[int] = set()
 
-        _LOGGER.debug("Sending Who-Is broadcast (timeout=%.1fs)", timeout)
+        if target_device_id:
+            _LOGGER.debug(
+                "Sending targeted Who-Is for device %d (timeout=%.1fs)",
+                target_device_id,
+                timeout,
+            )
+        else:
+            _LOGGER.debug("Sending global Who-Is broadcast (timeout=%.1fs)", timeout)
 
         try:
             # who_is() returns a Future that resolves to a list of I-Am APDUs
-            i_am_list = await self._app.who_is(timeout=timeout)
+            who_is_kwargs: dict[str, Any] = {"timeout": timeout}
+            if target_device_id:
+                who_is_kwargs["low_limit"] = target_device_id
+                who_is_kwargs["high_limit"] = target_device_id
+            i_am_list = await self._app.who_is(**who_is_kwargs)
 
             for i_am in i_am_list:
                 device_id = i_am.iAmDeviceIdentifier[1]
@@ -743,6 +763,7 @@ class BACnetClient:
         """Read multiple properties from one object.
 
         Falls back to individual reads if ReadPropertyMultiple is not supported.
+        Values are coerced from BACpypes3 types to plain Python types.
         """
         if property_names is None:
             property_names = ["presentValue", "statusFlags"]
@@ -750,7 +771,7 @@ class BACnetClient:
         result: dict[str, Any] = {}
         for prop in property_names:
             value = await self.read_property(device_address, object_type, instance, prop)
-            result[prop] = value
+            result[prop] = self._coerce_value(value)
         return result
 
     # ------------------------------------------------------------------
@@ -814,13 +835,22 @@ class BACnetClient:
             )
 
             if is_commandable:
-                await self._app.write_property(
+                result = await self._app.write_property(
                     addr, oid, property_name, bacnet_value, priority=priority
                 )
             else:
-                await self._app.write_property(
+                result = await self._app.write_property(
                     addr, oid, property_name, bacnet_value
                 )
+
+            # BACpypes3 returns ErrorRejectAbortNack on failure instead of
+            # raising it.  We must check the return value explicitly.
+            if isinstance(result, ErrorRejectAbortNack):
+                _LOGGER.error(
+                    "Write rejected by device for %s:%d.%s = %s: %s",
+                    type_str, instance, property_name, value, result,
+                )
+                return False
 
             _LOGGER.debug("Write successful")
             return True

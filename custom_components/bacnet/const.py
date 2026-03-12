@@ -33,6 +33,7 @@ CONF_USE_DESCRIPTION = "use_description"
 # COV & Polling
 CONF_ENABLE_COV = "enable_cov"
 CONF_POLLING_INTERVAL = "polling_interval"
+CONF_COV_INCREMENT = "cov_increment"
 
 # Domain mapping
 CONF_DOMAIN_MAPPING = "domain_mapping"
@@ -42,9 +43,10 @@ CONF_DOMAIN_MAPPING = "domain_mapping"
 # ---------------------------------------------------------------------------
 DEFAULT_PORT = 47808  # 0xBAC0 — standard BACnet/IP port
 DEFAULT_BBMD_TTL = 900  # seconds (15 min)
-DEFAULT_POLLING_INTERVAL = 60  # seconds
+DEFAULT_POLLING_INTERVAL = 30  # seconds
 DEFAULT_ENABLE_COV = True
 DEFAULT_USE_DESCRIPTION = False
+DEFAULT_COV_INCREMENT = 0.1  # default COV increment for analog objects
 
 # ---------------------------------------------------------------------------
 # BACnet object type IDs  (from ASHRAE 135)

@@ -24,6 +24,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from .const import (
     CONF_BBMD_ADDRESS,
     CONF_BBMD_TTL,
+    CONF_COV_INCREMENT,
     CONF_DOMAIN_MAPPING,
     CONF_ENABLE_COV,
     CONF_LOCAL_IP,
@@ -37,6 +38,7 @@ from .const import (
     DATA_DEVICE_INFO,
     DATA_OBJECTS,
     DATA_UNSUB,
+    DEFAULT_COV_INCREMENT,
     DEFAULT_DOMAIN_MAP,
     DEFAULT_ENABLE_COV,
     DEFAULT_POLLING_INTERVAL,
@@ -111,6 +113,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     polling_interval: int = entry.options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL)
     use_description: bool = entry.options.get(CONF_USE_DESCRIPTION, DEFAULT_USE_DESCRIPTION)
     domain_overrides: dict[str, str] = entry.options.get(CONF_DOMAIN_MAPPING, {})
+    cov_increment: float = entry.options.get(CONF_COV_INCREMENT, DEFAULT_COV_INCREMENT)
 
     # ---- 2. Create & connect the BACnet client ----
     client = BACnetClient(
@@ -139,6 +142,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         use_description=use_description,
         domain_overrides=domain_overrides,
         entry=entry,
+        cov_increment=cov_increment,
     )
 
     # Perform the first data refresh so entities have initial state

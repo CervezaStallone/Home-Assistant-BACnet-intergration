@@ -97,17 +97,19 @@ class BACnetSwitch(BACnetEntity, SwitchEntity):
             await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the switch off by relinquishing (writing Null) at the same priority.
+        """Turn the switch off by writing inactive (0) at the configured priority.
 
-        Per BACnet standard, writing Null clears the entry at the specified
-        priority level in the Priority Array. If no higher-priority command
-        exists, the Relinquish Default value takes effect (typically inactive/0).
+        Per BACnet standard, for commandable objects this writes at the
+        specified priority level in the Priority Array, setting the output
+        to inactive (0).
         """
         client: BACnetClient = self.hass.data[DOMAIN][self._entry.entry_id][DATA_CLIENT]
-        success = await client.relinquish(
+        success = await client.write_property(
             device_address=self.coordinator.device_address,
             object_type=self._object_type,
             instance=self._instance,
+            property_name="presentValue",
+            value=0,  # inactive
             priority=self._write_priority,
         )
         if success:

@@ -67,11 +67,13 @@
         "description": "Configure update behaviour, entity naming, and domain mapping for this device.",
         "data": {
           "enable_cov": "Enable COV (Change of Value) subscriptions",
+          "cov_increment": "COV increment for analog objects",
           "polling_interval": "Polling fallback interval (seconds)",
           "use_description": "Use description (property id 28) instead of name"
         },
         "data_description": {
           "enable_cov": "When enabled, the integration subscribes to COV notifications. If the device does not support COV or subscription fails, polling is used as fallback.",
+          "cov_increment": "Minimum value change on the device before a COV notification is sent (applies to analog objects only). Set to 0 to use the device's default. Example: 0.5 means a notification is sent when the value changes by at least 0.5.",
           "polling_interval": "Interval in seconds for polling when COV is unavailable or disabled.",
           "use_description": "When checked, entities will be named using the BACnet 'description' property (ID 28) instead of 'objectName' (ID 77)."
         }

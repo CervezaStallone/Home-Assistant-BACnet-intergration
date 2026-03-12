@@ -325,10 +325,16 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         )
                         errors["base"] = "device_unreachable"
                 else:
-                    # Broadcast Who-Is discovery
-                    self._discovered_devices = await client.discover_devices(timeout=5)
+                    # Who-Is discovery — targeted if a device ID was provided,
+                    # global broadcast otherwise.
+                    target_dev_id = self._network_config.get(CONF_TARGET_DEVICE_ID, 0)
+                    self._discovered_devices = await client.discover_devices(
+                        timeout=5,
+                        target_device_id=target_dev_id or None,
+                    )
                     _LOGGER.debug(
-                        "Broadcast discovery found %d device(s)",
+                        "Who-Is discovery (device_id=%s) found %d device(s)",
+                        target_dev_id or "any",
                         len(self._discovered_devices),
                     )
             except asyncio.CancelledError:

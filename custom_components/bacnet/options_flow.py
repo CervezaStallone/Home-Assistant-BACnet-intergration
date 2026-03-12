@@ -17,11 +17,13 @@ from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
+    CONF_COV_INCREMENT,
     CONF_DOMAIN_MAPPING,
     CONF_ENABLE_COV,
     CONF_POLLING_INTERVAL,
     CONF_SELECTED_OBJECTS,
     CONF_USE_DESCRIPTION,
+    DEFAULT_COV_INCREMENT,
     DEFAULT_DOMAIN_MAP,
     DEFAULT_ENABLE_COV,
     DEFAULT_POLLING_INTERVAL,
@@ -68,10 +70,14 @@ class BACnetOptionsFlow(config_entries.OptionsFlow):
         current_cov = self._config_entry.options.get(CONF_ENABLE_COV, DEFAULT_ENABLE_COV)
         current_poll = self._config_entry.options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL)
         current_desc = self._config_entry.options.get(CONF_USE_DESCRIPTION, DEFAULT_USE_DESCRIPTION)
+        current_cov_inc = self._config_entry.options.get(CONF_COV_INCREMENT, DEFAULT_COV_INCREMENT)
 
         schema = vol.Schema(
             {
                 vol.Optional(CONF_ENABLE_COV, default=current_cov): bool,
+                vol.Optional(CONF_COV_INCREMENT, default=current_cov_inc): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.0)
+                ),
                 vol.Optional(CONF_POLLING_INTERVAL, default=current_poll): vol.All(
                     vol.Coerce(int), vol.Range(min=1)
                 ),
