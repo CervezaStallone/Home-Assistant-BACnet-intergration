@@ -116,11 +116,13 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Fetch latest data for all objects.
 
         On the first call this also sets up COV subscriptions and does an
-        initial poll of ALL objects (including COV-subscribed ones) so that
-        entities have state immediately rather than waiting for the first
-        COV notification.
+        initial poll of ALL objects so that entities have state immediately.
 
-        Subsequent calls only poll objects that are NOT covered by COV.
+        **Every** subsequent call polls ALL objects too, regardless of COV
+        status.  COV provides faster intermediate updates between polls,
+        but polling is the reliable baseline that guarantees values are
+        always refreshed — even when a device accepts a COV subscription
+        but never actually sends notifications.
 
         Returns:
             Dict keyed by "object_type:instance" → {property: value}.
@@ -128,17 +130,15 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Use existing data as base (COV may have already pushed updates)
         data: dict[str, Any] = dict(self.data) if self.data else {}
 
-        # --- First run: set up COV and do initial poll of everything ---
+        # --- First run: set up COV subscriptions ---
         first_run = not self._cov_subscriptions and not self._polled_objects
         if first_run:
             await self._setup_subscriptions()
 
-        # Determine which objects to poll this cycle:
-        # First run → all objects (initial state), subsequent → polled only
-        objects_to_poll = self.objects if first_run else self._polled_objects
-
-        # --- Poll objects ---
-        for obj in objects_to_poll:
+        # Always poll ALL objects — COV is supplementary, polling is the
+        # reliable baseline.  This ensures values update even when COV
+        # subscriptions are accepted but notifications never arrive.
+        for obj in self.objects:
             obj_key = f"{obj['object_type']}:{obj['instance']}"
             try:
                 values = await self.client.read_multiple_properties(
