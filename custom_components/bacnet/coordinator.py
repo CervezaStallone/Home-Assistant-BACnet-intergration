@@ -238,6 +238,12 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         change is received.  We merge the changed properties into our
         data dict and tell HA to update affected entities.
 
+        IMPORTANT: We update self.data directly and notify listeners
+        instead of using async_set_updated_data(), because the latter
+        resets the polling timer.  If COV notifications arrive frequently,
+        that would prevent the scheduled _async_update_data poll from
+        ever firing.
+
         Args:
             obj_key: Object identifier string ("object_type:instance").
             changed_values: Dict of changed property names → new values,
@@ -252,7 +258,9 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             data[obj_key] = changed_values
 
-        self.async_set_updated_data(data)
+        # Update data and notify listeners WITHOUT resetting the poll timer.
+        self.data = data
+        self.async_update_listeners()
 
     # ------------------------------------------------------------------
     # Shutdown
