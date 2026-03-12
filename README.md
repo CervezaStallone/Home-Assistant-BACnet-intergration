@@ -1,163 +1,191 @@
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=CervezaStallone&repository=Home-Assistant-BACnet-intergration&category=integration)
 
-# BACnet IP Integration for Home Assistant
+<p align="center">
+  <img src="img/logo.png" alt="BACnet IP Integration" width="256">
+</p>
 
-A production-ready [Home Assistant](https://www.home-assistant.io/) custom integration that brings full **BACnet/IP** support to your smart-home or building-automation setup. Built on top of [BACpypes3](https://github.com/JoelBender/BACpypes3) — the modern, async-first Python BACnet stack.
+<h1 align="center">BACnet IP Integration for Home Assistant</h1>
 
-> **HACS Compatible** · GUI-only setup · No YAML required · ASHRAE 135 compliant writes
+<p align="center">
+  Connect your building automation system to Home Assistant — no YAML, no hassle.<br>
+  Monitor sensors, control outputs, and automate your BACnet/IP devices through a simple GUI.
+</p>
 
----
-
-## Key Features
-
-| Category | What you get |
-|----------|-------------|
-| **Zero-YAML Setup** | Three-step GUI config flow: network → discover → select objects. Options flow for runtime tuning. |
-| **Device Discovery** | Automatic **Who-Is / I-Am** broadcast discovers every BACnet device on the network. |
-| **BBMD & Foreign Device** | Register as a Foreign Device with a BBMD to reach devices across VLANs, subnets, and routed BACnet networks. |
-| **COV + Polling** | Subscribe to **Change of Value** notifications for instant updates. Devices that reject COV automatically fall back to configurable polling. |
-| **Priority Array Writes** | Writes go through the correct priority level (1–16). Turn-off sends a **Null / Relinquish** to release overrides cleanly. |
-| **Dynamic Domain Mapping** | Override the default HA domain per object at any time — move a temperature setpoint from `sensor` to `climate`, or a binary value from `switch` to `binary_sensor`. |
-| **Flexible Naming** | Choose between BACnet `objectName` (property 77) or `description` (property 28) for entity display names. |
-| **Selective Import** | Import only the objects you need, or click **Select All** for everything. |
+<p align="center">
+  <strong>HACS Compatible</strong> · GUI-only setup · Real-time COV updates · ASHRAE 135 compliant
+</p>
 
 ---
 
-## Supported BACnet Object Types
+## What does this integration do?
 
-| BACnet Object Type | ASHRAE 135 ID | Default HA Domain | Priority Array |
-|----|:---:|----|----|
-| Analog Input | 0 | `sensor` | — |
-| Analog Output | 1 | `number` | Yes |
-| Analog Value | 2 | `sensor` | Optional¹ |
-| Binary Input | 3 | `binary_sensor` | — |
-| Binary Output | 4 | `switch` | Yes |
-| Binary Value | 5 | `switch` | Optional¹ |
-| Multi-State Input | 13 | `sensor` | — |
-| Multi-State Output | 14 | `number` | Yes |
-| Multi-State Value | 19 | `sensor` | Optional¹ |
+This custom integration lets Home Assistant talk to **BACnet/IP** devices — the protocol used in professional building automation for HVAC, lighting, access control, and energy management.
 
-¹ Value objects may or may not be commandable — the integration auto-detects this by probing the Priority Array during discovery.
+In plain terms: if your building has BACnet controllers, thermostats, sensors, or actuators, this integration brings them into Home Assistant so you can monitor and control them from your dashboard, automations, and scripts.
+
+**No YAML configuration required.** Everything is set up through the Home Assistant GUI.
+
+---
+
+## Features at a glance
+
+- **Three-step setup wizard** — network → discover devices → select objects
+- **Automatic device discovery** — finds BACnet devices on your network via Who-Is / I-Am
+- **Cross-subnet support** — reach devices on other VLANs through BBMD / Foreign Device Registration
+- **Real-time updates via COV** — Change of Value subscriptions for instant state changes, with automatic polling fallback
+- **Configurable COV increment** — control how sensitive COV notifications are for analog objects
+- **Read and write** — monitor sensors and control outputs with proper BACnet Priority Array handling
+- **Device identity** — automatically reads vendor name, model, and firmware version from the device
+- **Custom device naming** — choose your own device name during setup
+- **Flexible entity naming** — use BACnet `objectName` or `description` for display names
+- **Domain mapping** — override default entity types per object (e.g. make a sensor into a number)
+- **Selective import** — only import the objects you actually need
+
+---
+
+## Supported object types
+
+| BACnet Object | Default entity | Writable? |
+|---|---|---|
+| Analog Input | Sensor | No |
+| Analog Output | Number | Yes |
+| Analog Value | Sensor | Auto-detected |
+| Binary Input | Binary sensor | No |
+| Binary Output | Switch | Yes |
+| Binary Value | Switch | Auto-detected |
+| Multi-State Input | Sensor | No |
+| Multi-State Output | Number | Yes |
+| Multi-State Value | Sensor | Auto-detected |
+
+> Value objects may or may not support writes — the integration auto-detects this by checking for a Priority Array during discovery.
 
 ---
 
 ## Installation
 
-### HACS (Recommended)
+### Via HACS (recommended)
 
-1. Click the **My Home Assistant** badge above, or:
-   - Open HACS → **Integrations** → **⋮ (three dots)** → **Custom repositories**
-   - Paste the repository URL and select category **Integration**
-2. Click **Download** / **Install**
+1. Click the **HACS badge** at the top of this page, or:
+   - Open **HACS** → **Integrations** → **⋮** → **Custom repositories**
+   - Paste this repository URL and select category **Integration**
+2. Click **Download**
 3. **Restart** Home Assistant
 
-### Manual
+### Manual installation
 
-```bash
-# From this repo root
-cp -r custom_components/bacnet <HA_CONFIG>/custom_components/bacnet
-```
-
-Restart Home Assistant after copying.
+Copy the `custom_components/bacnet` folder into your Home Assistant `config/custom_components/` directory and restart.
 
 ---
 
-## Quick Start
+## Getting started
 
-### Step 1 — Network Configuration
+### 1. Add the integration
 
-1. **Settings → Devices & Services → Add Integration → BACnet IP**
-2. Enter your network settings:
+Go to **Settings → Devices & Services → Add Integration** and search for **BACnet IP**.
 
-| Field | Description | Default |
-|-------|-------------|---------|
-| Local IP Address | Leave empty for auto-detect, or enter a specific NIC address | *(auto)* |
-| Local Port | BACnet/IP UDP port | `47808` (0xBAC0) |
-| Enable BBMD | Check if devices are on a different subnet | `No` |
-| BBMD Address | IP:port of the BBMD router | — |
-| BBMD TTL | Foreign device registration lifetime (seconds) | `900` |
+### 2. Configure your network
 
-### Step 2 — Device Discovery
+| Setting | What it does | Default |
+|---|---|---|
+| **Local IP address** | Which network interface to use (leave empty for auto-detect) | Auto |
+| **Local port** | BACnet/IP UDP port | `47808` |
+| **Target device address** | Direct IP of a specific device (leave empty to discover all) | — |
+| **Device ID** | BACnet Device Object Instance number (only needed with target address) | Auto |
+| **Enable BBMD** | Turn on if devices are on a different subnet/VLAN | Off |
+| **BBMD address** | IP:port of the BBMD router | — |
+| **BBMD TTL** | Foreign device registration lifetime in seconds | `900` |
 
-The integration sends a **Who-Is** broadcast and lists all responding devices.
-Select the device you want to integrate.
+### 3. Select your device
 
-### Step 3 — Object Selection
+The integration discovers BACnet devices on the network and shows them in a dropdown. Pick the one you want to add.
 
-The integration reads the device's Object List and shows all supported objects
-with their names, types, and current values. Use **Select All** or pick individual objects.
+### 4. Choose objects and name your device
 
-Click **Submit** — entities are created and data starts flowing.
+- Enter a **device name** (pre-filled with the BACnet device name — you can change it)
+- Use **Select All** or pick individual objects to import
+- Click **Submit** — your entities are created and data starts flowing immediately
 
 ---
 
-## Runtime Options
+## Configuration options
 
-Click **Configure** on the BACnet integration card to access:
+After setup, click **Configure** on the integration card to adjust:
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| Enable COV | Use Change of Value subscriptions (event-driven updates) | `On` |
-| Polling Interval | Fallback polling rate in seconds | `60` |
-| Use Description | Show BACnet `description` instead of `objectName` as entity name | `Off` |
-| Domain Mapping | Per-object HA domain override (sensor / binary_sensor / switch / number / climate) | Auto |
+| Option | What it does | Default |
+|---|---|---|
+| **Enable COV** | Use Change of Value subscriptions for real-time updates | On |
+| **COV increment** | Minimum value change before a COV notification is sent (analog objects only). Set to `0` to use the device default. | `0.1` |
+| **Polling interval** | How often to poll objects without COV support (in seconds) | `30` |
+| **Use description** | Show BACnet `description` (property 28) instead of `objectName` as entity name | Off |
+| **Domain mapping** | Change the HA entity type per object (e.g. sensor → number, switch → binary_sensor) | Auto |
 
 Changes take effect immediately — the integration reloads automatically.
 
 ---
 
-## Architecture
+## Entity attributes
 
-```
-custom_components/bacnet/
-├── __init__.py          # Entry setup & teardown lifecycle
-├── config_flow.py       # 3-step GUI configuration wizard
-├── options_flow.py      # Runtime options (COV, polling, naming, domain map)
-├── bacnet_client.py     # BACpypes3 wrapper — all network I/O
-├── coordinator.py       # DataUpdateCoordinator — COV + polling engine
-├── entity.py            # Base CoordinatorEntity with BACnet metadata
-├── sensor.py            # Analog/multi-state → HA sensor
-├── binary_sensor.py     # Binary input → HA binary sensor
-├── switch.py            # Binary output/value → HA switch (with relinquish)
-├── number.py            # Analog/multi-state output → HA number
-├── climate.py           # Setpoint → HA climate with HEAT/OFF modes
-├── const.py             # All constants, defaults, object type maps
-├── manifest.json        # HA integration manifest
-├── strings.json         # UI strings (English)
-└── translations/
-    └── en.json          # English translations
-```
+Every entity exposes additional BACnet metadata as state attributes:
 
-### Data Flow
-
-```
-BACnet Device
-  ↕  UDP/IP (port 47808)
-BACnetClient (bacnet_client.py)
-  ↕  Who-Is  │  ReadProperty  │  WriteProperty  │  SubscribeCOV
-BACnetCoordinator (coordinator.py)
-  ↕  async_set_updated_data()
-CoordinatorEntity subclasses (sensor / switch / number / …)
-  ↕
-Home Assistant state machine & frontend
-```
+| Attribute | Description |
+|---|---|
+| `bacnet_object_type` | BACnet object type name (e.g. "Analog Input") |
+| `bacnet_instance` | BACnet object instance number |
+| `bacnet_commandable` | Whether this object supports writes |
+| `bacnet_units` | Engineering units (e.g. "degreesCelsius") |
+| `bacnet_description` | BACnet description property |
+| `bacnet_status_flags` | BACnet status flags array |
+| `bacnet_update_method` | How this entity is updated: `COV` or `polling` |
+| `bacnet_cov_increment` | Configured COV sensitivity (analog objects with active COV only) |
 
 ---
 
-## BACnet Write Behaviour
+## Device information
+
+The integration automatically reads device identity from BACnet during discovery:
+
+- **Manufacturer** — from BACnet `vendorName` (property 121)
+- **Model** — from BACnet `modelName` (property 70)
+- **Software version** — from `applicationSoftwareVersion`
+- **Firmware version** — from `firmwareRevision`
+
+This information appears in the Home Assistant device registry, so you can see exactly what hardware you're working with.
+
+---
+
+## How writes work
 
 ### Priority Array
 
-All writes to commandable objects use the **Priority Array** (BACnet standard, ASHRAE 135):
+All writes to commandable objects use the BACnet **Priority Array** (ASHRAE 135):
 
-- **Turn ON / Set Value** → writes at priority level 16 (lowest, safe default)
-- **Turn OFF / Relinquish** → writes **Null** at the same priority level, clearing the override and letting lower-priority commands or the Relinquish Default take effect
+- **Turn ON / Set value** → writes at priority level 16 (safe default)
+- **Turn OFF** → writes `inactive` (0) at priority 16
 
-The write priority is configurable per entity in future releases.
+Binary outputs use the `Enumerated` BACnet type (`0 = inactive`, `1 = active`), compliant with ASHRAE 135.
 
-### Binary Present Value
+---
 
-Binary outputs use the `Enumerated` BACnet application type (`0 = inactive`, `1 = active`), not `Unsigned`. This complies with ASHRAE 135 and avoids write rejections on strict devices.
+## Troubleshooting
+
+| Problem | Likely cause | Solution |
+|---|---|---|
+| "No devices found" | Device not running or on a different subnet | Verify the device is reachable on UDP 47808 |
+| "Cannot connect" | Port 47808 already in use | Stop other BACnet software or use a different port |
+| Entities show "Unavailable" | Device went offline | Restart the device — entities recover automatically |
+| COV not working | Device doesn't support COV | This is normal — polling activates as fallback |
+| Write has no effect | Object is not commandable | Check the `bacnet_commandable` attribute |
+| Values don't update | COV increment too high, or polling interval too long | Lower the COV increment or reduce the polling interval |
+
+### Debug logging
+
+Add this to your `configuration.yaml` for detailed BACnet logs:
+
+```yaml
+logger:
+  logs:
+    custom_components.bacnet: debug
+```
 
 ---
 
@@ -165,29 +193,8 @@ Binary outputs use the `Enumerated` BACnet application type (`0 = inactive`, `1 
 
 - **Home Assistant** 2024.1.0 or newer
 - **Python** 3.11+
-- **Network** UDP port 47808 accessible to BACnet devices
-- **Cross-subnet** A BBMD or BACnet router on the target network
-
----
-
-## Troubleshooting
-
-| Symptom | Likely Cause | Solution |
-|---------|-------------|----------|
-| "No devices found" | Simulator/device not running or wrong subnet | Verify device is reachable on UDP 47808 |
-| "Cannot connect" | Port 47808 already bound | Stop other BACnet applications or change the port |
-| Entities show "Unavailable" | Device went offline | Restart the device; entities recover automatically |
-| COV not working | Device doesn't support COV | Expected — polling fallback activates automatically |
-| Write has no effect | Object is not commandable | Check `bacnet_commandable` extra attribute |
-| Toggle OFF doesn't change value | Relinquish Default takes effect | This is correct BACnet behaviour — the RD value replaces the override |
-
-Enable debug logging for detailed diagnostics:
-
-```yaml
-logger:
-  logs:
-    custom_components.bacnet: debug
-```
+- **Network** UDP port 47808 accessible between HA and BACnet devices
+- **Cross-subnet** A BBMD or BACnet router if devices are on a different network
 
 ---
 
@@ -205,9 +212,7 @@ GPL-3.0 — see [LICENSE](LICENSE) for details.
 
 ---
 
-## Credits
-
-- Developed by **[BRDC](https://brdc.nl)**
-- [BACpypes3](https://github.com/JoelBender/BACpypes3) by Joel Bender — the Python BACnet stack powering this integration
-- [Home Assistant](https://www.home-assistant.io/) — the open-source home automation platform
-- ASHRAE Standard 135 — the BACnet protocol specification
+<p align="center">
+  Developed by <strong><a href="https://brdc.nl">BRDC</a></strong><br>
+  Powered by <a href="https://github.com/JoelBender/BACpypes3">BACpypes3</a> · Built for <a href="https://www.home-assistant.io/">Home Assistant</a>
+</p>
