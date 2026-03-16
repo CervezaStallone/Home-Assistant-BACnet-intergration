@@ -23,11 +23,6 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .bacnet_client import BACnetClient
 from .const import (
-    CONF_COV_INCREMENT,
-    CONF_DOMAIN_MAPPING,
-    CONF_ENABLE_COV,
-    CONF_POLLING_INTERVAL,
-    CONF_USE_DESCRIPTION,
     DEFAULT_COV_INCREMENT,
     DEFAULT_DOMAIN_MAP,
     DEFAULT_ENABLE_COV,
@@ -181,10 +176,7 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.enable_cov:
                 # For analog objects, write the covIncrement to the device
                 # before subscribing so the device uses the user's threshold.
-                if (
-                    self.cov_increment > 0
-                    and obj["object_type"] in self._ANALOG_TYPES
-                ):
+                if self.cov_increment > 0 and obj["object_type"] in self._ANALOG_TYPES:
                     try:
                         await self.client.write_property(
                             device_address=self.device_address,
@@ -231,7 +223,9 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # automatically — no background renewal task needed.
 
     @callback
-    def _handle_cov_notification(self, obj_key: str, changed_values: dict[str, Any]) -> None:
+    def _handle_cov_notification(
+        self, obj_key: str, changed_values: dict[str, Any]
+    ) -> None:
         """Process an incoming COV notification and push update to entities.
 
         Called by the BACnetClient COV reader task whenever a property

@@ -66,7 +66,10 @@ PLATFORMS: list[Platform] = [
 # Setup helpers
 # ---------------------------------------------------------------------------
 
-def _get_platforms_in_use(objects: list[dict], domain_overrides: dict[str, str]) -> list[Platform]:
+
+def _get_platforms_in_use(
+    objects: list[dict], domain_overrides: dict[str, str]
+) -> list[Platform]:
     """Determine which HA platforms are actually needed based on selected objects.
 
     This avoids setting up platform files that have zero entities, which
@@ -76,7 +79,9 @@ def _get_platforms_in_use(objects: list[dict], domain_overrides: dict[str, str])
     for obj in objects:
         obj_key = f"{obj['object_type']}:{obj['instance']}"
         # Check user overrides first, then fall back to default mapping
-        domain = domain_overrides.get(obj_key, DEFAULT_DOMAIN_MAP.get(obj["object_type"], "sensor"))
+        domain = domain_overrides.get(
+            obj_key, DEFAULT_DOMAIN_MAP.get(obj["object_type"], "sensor")
+        )
         domains_needed.add(domain)
     return [Platform(d) for d in domains_needed if d in {p.value for p in PLATFORMS}]
 
@@ -84,6 +89,7 @@ def _get_platforms_in_use(objects: list[dict], domain_overrides: dict[str, str])
 # ---------------------------------------------------------------------------
 # Integration lifecycle
 # ---------------------------------------------------------------------------
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up BACnet IP from a config entry.
@@ -114,8 +120,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Options (may be updated at runtime via options_flow)
     enable_cov: bool = entry.options.get(CONF_ENABLE_COV, DEFAULT_ENABLE_COV)
-    polling_interval: int = entry.options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL)
-    use_description: bool = entry.options.get(CONF_USE_DESCRIPTION, DEFAULT_USE_DESCRIPTION)
+    polling_interval: int = entry.options.get(
+        CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL
+    )
+    use_description: bool = entry.options.get(
+        CONF_USE_DESCRIPTION, DEFAULT_USE_DESCRIPTION
+    )
     domain_overrides: dict[str, str] = entry.options.get(CONF_DOMAIN_MAPPING, {})
     cov_increment: float = entry.options.get(CONF_COV_INCREMENT, DEFAULT_COV_INCREMENT)
 
@@ -205,7 +215,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     needed_platforms = _get_platforms_in_use(selected_objects, domain_overrides)
 
     # Unload platforms
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, needed_platforms)
+    unload_ok = await hass.config_entries.async_unload_platforms(
+        entry, needed_platforms
+    )
 
     if unload_ok:
         # Cancel update listener subscriptions

@@ -28,7 +28,6 @@ from .const import (
     DEFAULT_ENABLE_COV,
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_USE_DESCRIPTION,
-    OBJECT_TYPE_NAMES,
     SUPPORTED_DOMAINS,
 )
 
@@ -67,10 +66,18 @@ class BACnetOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_domain_mapping()
 
         # --- Current values (fallback to defaults) ---
-        current_cov = self._config_entry.options.get(CONF_ENABLE_COV, DEFAULT_ENABLE_COV)
-        current_poll = self._config_entry.options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL)
-        current_desc = self._config_entry.options.get(CONF_USE_DESCRIPTION, DEFAULT_USE_DESCRIPTION)
-        current_cov_inc = self._config_entry.options.get(CONF_COV_INCREMENT, DEFAULT_COV_INCREMENT)
+        current_cov = self._config_entry.options.get(
+            CONF_ENABLE_COV, DEFAULT_ENABLE_COV
+        )
+        current_poll = self._config_entry.options.get(
+            CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL
+        )
+        current_desc = self._config_entry.options.get(
+            CONF_USE_DESCRIPTION, DEFAULT_USE_DESCRIPTION
+        )
+        current_cov_inc = self._config_entry.options.get(
+            CONF_COV_INCREMENT, DEFAULT_COV_INCREMENT
+        )
 
         schema = vol.Schema(
             {
@@ -121,7 +128,10 @@ class BACnetOptionsFlow(config_entries.OptionsFlow):
                     domain_mapping[obj_key] = user_input[field_key]
 
             # Store in options and create entry
-            final_options = {**self._options_so_far, CONF_DOMAIN_MAPPING: domain_mapping}
+            final_options = {
+                **self._options_so_far,
+                CONF_DOMAIN_MAPPING: domain_mapping,
+            }
             return self.async_create_entry(title="", data=final_options)
 
         # --- Build the form: one dropdown per BACnet object ---
@@ -132,11 +142,6 @@ class BACnetOptionsFlow(config_entries.OptionsFlow):
         schema_fields: dict[Any, Any] = {}
         for obj in selected_objects:
             obj_key = f"{obj['object_type']}:{obj['instance']}"
-            type_name = OBJECT_TYPE_NAMES.get(
-                obj["object_type"], f"Type {obj['object_type']}"
-            )
-            obj_name = obj.get("object_name", "unnamed")
-            label = f"{type_name} ({obj['instance']}) — {obj_name}"
 
             # Current domain: user override → default map → "sensor"
             current_domain = current_mapping.get(
@@ -145,10 +150,12 @@ class BACnetOptionsFlow(config_entries.OptionsFlow):
 
             field_key = f"domain_{obj_key}"
             schema_fields[
-                vol.Optional(field_key, default=current_domain, description={"suggested_value": current_domain})
-            ] = vol.In(
-                {d: d for d in SUPPORTED_DOMAINS}
-            )
+                vol.Optional(
+                    field_key,
+                    default=current_domain,
+                    description={"suggested_value": current_domain},
+                )
+            ] = vol.In({d: d for d in SUPPORTED_DOMAINS})
 
         schema = vol.Schema(schema_fields)
 
