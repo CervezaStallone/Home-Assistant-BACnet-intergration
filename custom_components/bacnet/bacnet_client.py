@@ -56,6 +56,26 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _mask_address(addr: str | object) -> str:
+    """Partially mask a network address for safe logging.
+
+    Replaces the middle octets of an IPv4 address with 'x' to avoid
+    logging full network addresses while retaining enough detail for
+    debugging (first and last octet plus port).
+    """
+    addr_str = str(addr)
+    if not addr_str:
+        return "<none>"
+    parts = addr_str.rsplit(":", 1)
+    ip_part = parts[0]
+    port_suffix = f":{parts[1]}" if len(parts) == 2 else ""
+    octets = ip_part.split(".")
+    if len(octets) == 4:
+        return f"{octets[0]}.x.x.{octets[3]}{port_suffix}"
+    return addr_str
+
+
 # BACnet object types we support importing as HA entities
 SUPPORTED_OBJECT_TYPES: set[int] = {
     OBJECT_TYPE_ANALOG_INPUT,
@@ -157,14 +177,14 @@ class BACnetClient:
             _LOGGER.debug(
                 "Creating Foreign BACnet application on %s (BBMD=%s)",
                 local_addr,
-                bbmd_address,
+                _mask_address(bbmd_address),
             )
             self._app = ForeignApplication(device_object, local_addr)
             bbmd_addr = IPv4Address(bbmd_address)
             self._app.register(bbmd_addr, bbmd_ttl)
             _LOGGER.info(
                 "BACnet Foreign Device registered with BBMD at %s (TTL=%ds)",
-                bbmd_address,
+                _mask_address(bbmd_address),
                 bbmd_ttl,
             )
         else:
@@ -342,7 +362,7 @@ class BACnetClient:
                     "Discovered device: %s (%d) at %s",
                     device_name,
                     device_id,
-                    i_am.pduSource,
+                    _mask_address(i_am.pduSource),
                 )
         except asyncio.TimeoutError:
             pass  # normal - discovery just timed out
@@ -416,7 +436,7 @@ class BACnetClient:
             )
         except asyncio.TimeoutError:
             _LOGGER.warning(
-                "Timeout (%.0fs) reaching device at %s", timeout, device_address
+                "Timeout (%.0fs) reaching device at %s", timeout, _mask_address(device_address)
             )
             return None
 
@@ -430,7 +450,7 @@ class BACnetClient:
         addr = Address(device_address)
         _LOGGER.debug(
             "read_device_info: address=%s (parsed=%r), known_id=%s, app=%s",
-            device_address,
+            _mask_address(device_address),
             addr,
             known_device_id,
             type(self._app).__name__,
@@ -489,7 +509,7 @@ class BACnetClient:
         except (ErrorRejectAbortNack, Exception) as exc:  # noqa: BLE001
             _LOGGER.debug(
                 "Strategy 1 (Who-Is) failed for %s: %s (%s)",
-                device_address,
+                _mask_address(device_address),
                 exc,
                 type(exc).__name__,
             )
@@ -508,7 +528,7 @@ class BACnetClient:
                 _LOGGER.debug(
                     "  Trying ReadProperty %s objectIdentifier from %s ...",
                     oid,
-                    device_address,
+                    _mask_address(device_address),
                 )
                 obj_id = await asyncio.wait_for(
                     self._app.read_property(addr, oid, "objectIdentifier"),
@@ -558,7 +578,7 @@ class BACnetClient:
             "(3) if Home Assistant runs in Docker, use --network=host, "
             "(4) try a different 'Local port' (e.g. 47809) in case port %d is "
             "already in use on this host.",
-            device_address,
+            _mask_address(device_address),
             self._local_port,
         )
         return None
@@ -585,7 +605,7 @@ class BACnetClient:
         objects: list[dict[str, Any]] = []
 
         # 1. Read the Object List property from the Device object
-        _LOGGER.debug("Reading objectList from %s device,%d", device_address, device_id)
+        _LOGGER.debug("Reading objectList from %s device,%d", _mask_address(device_address), device_id)
         try:
             object_list = await asyncio.wait_for(
                 self._app.read_property(addr, device_oid, "objectList"),
@@ -595,25 +615,25 @@ class BACnetClient:
             if isinstance(object_list, ErrorRejectAbortNack):
                 _LOGGER.error(
                     "Device %s returned BACnet error for objectList: %s",
-                    device_address, object_list,
+                    _mask_address(device_address), object_list,
                 )
                 return objects
         except asyncio.TimeoutError:
-            _LOGGER.error("Timeout reading objectList from %s", device_address)
+            _LOGGER.error("Timeout reading objectList from %s", _mask_address(device_address))
             raise
         except asyncio.CancelledError:
-            _LOGGER.warning("objectList read cancelled for %s", device_address)
+            _LOGGER.warning("objectList read cancelled for %s", _mask_address(device_address))
             raise
         except ErrorRejectAbortNack as exc:
             _LOGGER.error(
                 "BACnet error reading objectList from %s: %s",
-                device_address, exc,
+                _mask_address(device_address), exc,
             )
             return objects
         except Exception as exc:
             _LOGGER.error(
                 "Failed to read objectList from %s: %s (%s)",
-                device_address, exc, type(exc).__name__,
+                _mask_address(device_address), exc, type(exc).__name__,
                 exc_info=True,
             )
             raise
@@ -681,7 +701,7 @@ class BACnetClient:
         _LOGGER.info(
             "Read %d supported objects from device %s (%d)",
             len(objects),
-            device_address,
+            _mask_address(device_address),
             device_id,
         )
         return objects

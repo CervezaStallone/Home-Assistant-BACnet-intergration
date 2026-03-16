@@ -52,6 +52,26 @@ _LOGGER = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
+def _mask_address(addr: str | object) -> str:
+    """Partially mask a network address for safe logging.
+
+    Replaces the middle octets of an IPv4 address with 'x' to avoid
+    logging full network addresses while retaining enough detail for
+    debugging (first and last octet plus port).
+    """
+    addr_str = str(addr)
+    if not addr_str:
+        return "<none>"
+    parts = addr_str.rsplit(":", 1)
+    ip_part = parts[0]
+    port_suffix = f":{parts[1]}" if len(parts) == 2 else ""
+    octets = ip_part.split(".")
+    if len(octets) == 4:
+        return f"{octets[0]}.x.x.{octets[3]}{port_suffix}"
+    return addr_str
+
+
 def _validate_ip(ip_string: str) -> bool:
     """Return True if *ip_string* is a valid IPv4 address (or empty for auto)."""
     if not ip_string:
@@ -309,7 +329,7 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     target_dev_id = self._network_config.get(CONF_TARGET_DEVICE_ID, 0)
                     _LOGGER.debug(
                         "Manual device entry: target=%s, device_id=%s",
-                        target, target_dev_id,
+                        _mask_address(target), target_dev_id,
                     )
                     device_info = await client.read_device_info(
                         target, device_id=target_dev_id or None
@@ -320,12 +340,12 @@ class BACnetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             "Found device: id=%s, name=%s, address=%s",
                             device_info.get("device_id"),
                             device_info.get("device_name"),
-                            device_info.get("address"),
+                            _mask_address(device_info.get("address", "")),
                         )
                     else:
                         _LOGGER.warning(
                             "Device unreachable at %s (device_id=%s)",
-                            target, target_dev_id,
+                            _mask_address(target), target_dev_id,
                         )
                         errors["base"] = "device_unreachable"
                 else:
