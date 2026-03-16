@@ -135,7 +135,9 @@ class BACnetEntity(CoordinatorEntity[BACnetCoordinator]):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes with BACnet-specific metadata."""
-        type_name = OBJECT_TYPE_NAMES.get(self._object_type, f"Type {self._object_type}")
+        type_name = OBJECT_TYPE_NAMES.get(
+            self._object_type, f"Type {self._object_type}"
+        )
         attrs: dict[str, Any] = {
             "bacnet_object_type": type_name,
             "bacnet_instance": self._instance,
@@ -151,7 +153,9 @@ class BACnetEntity(CoordinatorEntity[BACnetCoordinator]):
             attrs["bacnet_status_flags"] = status_flags
 
         # Update method & COV details
-        attrs["bacnet_update_method"] = self.coordinator.get_update_method(self._obj_key)
+        attrs["bacnet_update_method"] = self.coordinator.get_update_method(
+            self._obj_key
+        )
         cov_inc = self.coordinator.get_cov_increment_for(self._obj_key)
         if cov_inc is not None:
             attrs["bacnet_cov_increment"] = cov_inc
