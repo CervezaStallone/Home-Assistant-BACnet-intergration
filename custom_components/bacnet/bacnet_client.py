@@ -135,6 +135,7 @@ class BACnetClient:
             objectName="HomeAssistant-BACnet",
             vendorIdentifier=0,
             maxApduLengthAccepted=1476,
+            maxSegmentsAccepted=64,
             segmentationSupported="segmented-both",
         )
         return device_object, local_addr
@@ -583,6 +584,122 @@ class BACnetClient:
     # Object list and property reads
     # ------------------------------------------------------------------
 
+    async def _read_object_list_property(
+        self, addr: Address, device_oid: ObjectIdentifier, device_address: str
+    ) -> list | None:
+        """Read the objectList property, with automatic fallback.
+
+        Strategy:
+        1. Attempt a bulk read of the entire objectList property.
+        2. If that fails (segmentation-not-supported, timeout, or other
+           BACnet error), fall back to BACnet standard array indexing
+           (Clause 12.19): read objectList[0] for the array length, then
+           read each element individually via objectList[1]…objectList[N].
+
+        Returns the list of object identifiers, or None on failure.
+        """
+        assert self._app is not None  # noqa: S101
+
+        # --- Strategy 1: bulk read ------------------------------------------
+        try:
+            result = await asyncio.wait_for(
+                self._app.read_property(addr, device_oid, "objectList"),
+                timeout=15,
+            )
+            if isinstance(result, ErrorRejectAbortNack):
+                raise result  # handled below
+            if result is not None and hasattr(result, "__iter__"):
+                _LOGGER.debug(
+                    "Bulk objectList read succeeded for %s",
+                    _mask_address(device_address),
+                )
+                return list(result)
+        except asyncio.CancelledError:
+            raise
+        except (ErrorRejectAbortNack, asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
+            _LOGGER.info(
+                "Bulk objectList read failed for %s: %s (%s) — "
+                "falling back to element-by-element array indexing",
+                _mask_address(device_address),
+                exc,
+                type(exc).__name__,
+            )
+
+        # --- Strategy 2: array indexing (BACnet Clause 12.19) ----------------
+        try:
+            count_raw = await asyncio.wait_for(
+                self._app.read_property(
+                    addr, device_oid, "objectList", array_index=0
+                ),
+                timeout=10,
+            )
+            if isinstance(count_raw, ErrorRejectAbortNack):
+                _LOGGER.error(
+                    "Cannot read objectList[0] from %s: %s",
+                    _mask_address(device_address),
+                    count_raw,
+                )
+                return None
+            count = int(count_raw)
+            _LOGGER.debug(
+                "objectList[0] = %d for %s",
+                count,
+                _mask_address(device_address),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.error(
+                "Failed to read objectList[0] from %s: %s (%s)",
+                _mask_address(device_address),
+                exc,
+                type(exc).__name__,
+            )
+            return None
+
+        object_list: list = []
+        for idx in range(1, count + 1):
+            try:
+                oid = await asyncio.wait_for(
+                    self._app.read_property(
+                        addr, device_oid, "objectList", array_index=idx
+                    ),
+                    timeout=5,
+                )
+                if isinstance(oid, ErrorRejectAbortNack):
+                    _LOGGER.warning(
+                        "Error reading objectList[%d] from %s: %s",
+                        idx,
+                        _mask_address(device_address),
+                        oid,
+                    )
+                    continue
+                object_list.append(oid)
+            except asyncio.CancelledError:
+                _LOGGER.warning(
+                    "objectList read cancelled at index %d for %s",
+                    idx,
+                    _mask_address(device_address),
+                )
+                break
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Failed to read objectList[%d] from %s: %s (%s)",
+                    idx,
+                    _mask_address(device_address),
+                    exc,
+                    type(exc).__name__,
+                )
+                continue
+
+        _LOGGER.info(
+            "Array-indexed objectList read got %d/%d entries from %s",
+            len(object_list),
+            count,
+            _mask_address(device_address),
+        )
+        return object_list
+
     async def read_object_list(
         self, device_address: str, device_id: int
     ) -> list[dict[str, Any]]:
@@ -600,63 +717,22 @@ class BACnetClient:
         device_oid = ObjectIdentifier(("device", device_id))
         objects: list[dict[str, Any]] = []
 
-        # 1. Read the Object List property from the Device object
+        # 1. Read the Object List property from the Device object.
+        #    First attempt a bulk read; if that fails (e.g. segmentation-not-
+        #    supported), fall back to BACnet standard array indexing
+        #    (Clause 12.19): read objectList[0] for the count, then each
+        #    element individually via objectList[1] … objectList[N].
         _LOGGER.debug(
             "Reading objectList from %s device,%d",
             _mask_address(device_address),
             device_id,
         )
-        try:
-            object_list = await asyncio.wait_for(
-                self._app.read_property(addr, device_oid, "objectList"),
-                timeout=15,
-            )
-            # read_property may return an error object instead of raising
-            if isinstance(object_list, ErrorRejectAbortNack):
-                _LOGGER.error(
-                    "Device %s returned BACnet error for objectList: %s",
-                    _mask_address(device_address),
-                    object_list,
-                )
-                return objects
-        except asyncio.TimeoutError:
-            _LOGGER.error(
-                "Timeout reading objectList from %s", _mask_address(device_address)
-            )
-            raise
-        except asyncio.CancelledError:
-            _LOGGER.warning(
-                "objectList read cancelled for %s", _mask_address(device_address)
-            )
-            raise
-        except ErrorRejectAbortNack as exc:
-            _LOGGER.error(
-                "BACnet error reading objectList from %s: %s",
-                _mask_address(device_address),
-                exc,
-            )
-            return objects
-        except Exception as exc:
-            _LOGGER.error(
-                "Failed to read objectList from %s: %s (%s)",
-                _mask_address(device_address),
-                exc,
-                type(exc).__name__,
-                exc_info=True,
-            )
-            raise
+        object_list = await self._read_object_list_property(
+            addr, device_oid, device_address
+        )
 
         if object_list is None:
             _LOGGER.warning("objectList is None for device %s", device_id)
-            return objects
-
-        # Validate the response is iterable (not a single value)
-        if not hasattr(object_list, "__iter__"):
-            _LOGGER.error(
-                "objectList response is not iterable: %s (%s)",
-                object_list,
-                type(object_list).__name__,
-            )
             return objects
 
         try:
