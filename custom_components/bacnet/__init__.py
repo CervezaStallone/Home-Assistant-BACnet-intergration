@@ -48,6 +48,9 @@ from .const import (
     DEFAULT_POLLING_INTERVAL,
     DEFAULT_USE_DESCRIPTION,
     DOMAIN,
+    OBJECT_TYPE_ANALOG_VALUE,
+    OBJECT_TYPE_BINARY_VALUE,
+    OBJECT_TYPE_MULTI_STATE_VALUE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -67,6 +70,14 @@ PLATFORMS: list[Platform] = [
 # ---------------------------------------------------------------------------
 
 
+# Commandable Value objects should use writable domains
+_COMMANDABLE_VALUE_DOMAIN: dict[int, str] = {
+    OBJECT_TYPE_ANALOG_VALUE: "number",
+    OBJECT_TYPE_BINARY_VALUE: "switch",
+    OBJECT_TYPE_MULTI_STATE_VALUE: "number",
+}
+
+
 def _get_platforms_in_use(
     objects: list[dict], domain_overrides: dict[str, str]
 ) -> list[Platform]:
@@ -78,11 +89,14 @@ def _get_platforms_in_use(
     domains_needed: set[str] = set()
     for obj in objects:
         obj_key = f"{obj['object_type']}:{obj['instance']}"
-        # Check user overrides first, then fall back to default mapping
-        domain = domain_overrides.get(
-            obj_key, DEFAULT_DOMAIN_MAP.get(obj["object_type"], "sensor")
-        )
-        domains_needed.add(domain)
+        # Check user overrides first, then commandable Value logic, then default
+        override = domain_overrides.get(obj_key)
+        if override:
+            domains_needed.add(override)
+        elif obj.get("commandable") and obj["object_type"] in _COMMANDABLE_VALUE_DOMAIN:
+            domains_needed.add(_COMMANDABLE_VALUE_DOMAIN[obj["object_type"]])
+        else:
+            domains_needed.add(DEFAULT_DOMAIN_MAP.get(obj["object_type"], "sensor"))
     return [Platform(d) for d in domains_needed if d in {p.value for p in PLATFORMS}]
 
 

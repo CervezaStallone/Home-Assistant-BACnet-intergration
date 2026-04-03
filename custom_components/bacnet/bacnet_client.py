@@ -130,9 +130,16 @@ class BACnetClient:
         else:
             local_addr = IPv4Address(f"0.0.0.0:{self._local_port}")
 
+        # Each BACnet client needs a unique device instance so that remote
+        # devices can distinguish COV subscriptions from different HA
+        # entries.  We derive the instance from the local port to keep it
+        # deterministic across restarts while avoiding collisions when
+        # multiple config entries use different ports.
+        device_instance = 999999 + (self._local_port - 47808)
+
         device_object = DeviceObject(
-            objectIdentifier=("device", 999999),
-            objectName="HomeAssistant-BACnet",
+            objectIdentifier=("device", device_instance),
+            objectName=f"HomeAssistant-BACnet-{self._local_port}",
             vendorIdentifier=0,
             maxApduLengthAccepted=1476,
             maxSegmentsAccepted=64,
@@ -648,7 +655,7 @@ class BACnetClient:
             )
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except (ErrorRejectAbortNack, Exception) as exc:  # noqa: BLE001
             _LOGGER.error(
                 "Failed to read objectList[0] from %s: %s (%s)",
                 _mask_address(device_address),
@@ -682,7 +689,7 @@ class BACnetClient:
                     _mask_address(device_address),
                 )
                 break
-            except Exception as exc:  # noqa: BLE001
+            except (ErrorRejectAbortNack, Exception) as exc:  # noqa: BLE001
                 _LOGGER.warning(
                     "Failed to read objectList[%d] from %s: %s (%s)",
                     idx,
@@ -846,6 +853,12 @@ class BACnetClient:
                 pa = await self._safe_read(addr, oid, "priorityArray")
                 if pa is not None:
                     commandable = True
+                else:
+                    # Some devices expose relinquishDefault without
+                    # priorityArray — this still indicates writability.
+                    rd = await self._safe_read(addr, oid, "relinquishDefault")
+                    if rd is not None:
+                        commandable = True
 
             return {
                 "object_type": int(obj_type),

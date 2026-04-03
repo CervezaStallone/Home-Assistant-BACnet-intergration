@@ -32,6 +32,8 @@ from .const import (
     OBJECT_TYPE_ANALOG_INPUT,
     OBJECT_TYPE_ANALOG_OUTPUT,
     OBJECT_TYPE_ANALOG_VALUE,
+    OBJECT_TYPE_BINARY_VALUE,
+    OBJECT_TYPE_MULTI_STATE_VALUE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -279,12 +281,23 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         obj_data = self.data.get(obj_key, {})
         return obj_data.get(prop)
 
+    # Value object types that should use a writable domain when commandable
+    _COMMANDABLE_VALUE_DOMAIN: dict[int, str] = {
+        OBJECT_TYPE_ANALOG_VALUE: "number",
+        OBJECT_TYPE_BINARY_VALUE: "switch",
+        OBJECT_TYPE_MULTI_STATE_VALUE: "number",
+    }
+
     def get_domain_for_object(self, obj: dict[str, Any]) -> str:
         """Determine the HA domain for a BACnet object, respecting user overrides."""
         obj_key = f"{obj['object_type']}:{obj['instance']}"
-        return self.domain_overrides.get(
-            obj_key, DEFAULT_DOMAIN_MAP.get(obj["object_type"], "sensor")
-        )
+        override = self.domain_overrides.get(obj_key)
+        if override:
+            return override
+        # Commandable Value objects should use a writable domain
+        if obj.get("commandable") and obj["object_type"] in self._COMMANDABLE_VALUE_DOMAIN:
+            return self._COMMANDABLE_VALUE_DOMAIN[obj["object_type"]]
+        return DEFAULT_DOMAIN_MAP.get(obj["object_type"], "sensor")
 
     def get_entity_name(self, obj: dict[str, Any]) -> str:
         """Return the entity display name, respecting the use_description option."""
