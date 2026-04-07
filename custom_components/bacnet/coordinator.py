@@ -13,6 +13,7 @@ The coordinator also handles:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
@@ -21,7 +22,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .bacnet_client import BACnetClient
+from .bacnet_client import BACnetClient, POTENTIALLY_WRITABLE_TYPES
 from .const import (
     DEFAULT_COV_INCREMENT,
     DEFAULT_DOMAIN_MAP,
@@ -92,6 +93,8 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Track which objects have active COV and which need polling
         self._cov_subscriptions: dict[str, str] = {}  # obj_key → sub_key
         self._polled_objects: list[dict[str, Any]] = []
+        self._cov_setup_done: bool = False  # True once COV setup has been scheduled
+        self._cov_setup_task: asyncio.Task | None = None
 
         # Device address for reads/writes (from config entry data)
         self.device_address: str = ""
@@ -112,8 +115,9 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch latest data for all objects.
 
-        On the first call this also sets up COV subscriptions and does an
-        initial poll of ALL objects so that entities have state immediately.
+        On the first call this schedules COV subscriptions as a background
+        task (so they don't block the HA bootstrap) and does an initial
+        poll of ALL objects so that entities have state immediately.
 
         **Every** subsequent call polls ALL objects too, regardless of COV
         status.  COV provides faster intermediate updates between polls,
@@ -127,10 +131,22 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Use existing data as base (COV may have already pushed updates)
         data: dict[str, Any] = dict(self.data) if self.data else {}
 
-        # --- First run: set up COV subscriptions ---
-        first_run = not self._cov_subscriptions and not self._polled_objects
-        if first_run:
-            await self._setup_subscriptions()
+        # --- First run: re-detect commandability & schedule COV ---
+        # COV setup is NOT awaited here so the first refresh completes
+        # quickly within HA's bootstrap timeout, even with many objects.
+        if not self._cov_setup_done:
+            self._cov_setup_done = True
+
+            # Re-probe Value objects (AV, BV, MSV) for commandability.
+            # The flag may have been missed during initial config-flow
+            # discovery (e.g. device was slow to respond).
+            await self._redetect_commandability()
+
+            if self.enable_cov:
+                self._cov_setup_task = self.hass.async_create_task(
+                    self._setup_subscriptions_background()
+                )
+                _LOGGER.debug("COV subscription setup scheduled in background")
 
         # Always poll ALL objects — COV is supplementary, polling is the
         # reliable baseline.  This ensures values update even when COV
@@ -167,6 +183,62 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         OBJECT_TYPE_ANALOG_OUTPUT,
         OBJECT_TYPE_ANALOG_VALUE,
     }
+
+    async def _redetect_commandability(self) -> None:
+        """Re-probe Value objects for commandability and update config entry.
+
+        During initial config-flow discovery, the commandable flag for AV/BV/MSV
+        objects may have been missed (e.g. device responded slowly or timed out
+        on priorityArray/relinquishDefault reads).  We re-check here on every
+        coordinator start so the correct HA domain (number/switch vs sensor) is
+        used.
+        """
+        changed = False
+        for obj in self.objects:
+            obj_type = obj["object_type"]
+            if obj_type not in POTENTIALLY_WRITABLE_TYPES:
+                continue
+            if obj.get("commandable"):
+                continue  # already detected as commandable
+
+            obj_key = f"{obj_type}:{obj['instance']}"
+            is_commandable = await self.client.check_commandable(
+                device_address=self.device_address,
+                object_type=obj_type,
+                instance=obj["instance"],
+            )
+            if is_commandable:
+                obj["commandable"] = True
+                changed = True
+                _LOGGER.info(
+                    "Re-detected %s as commandable — will use writable domain",
+                    obj_key,
+                )
+
+        if changed and self.entry is not None:
+            # Persist updated commandability flags in the config entry so
+            # they survive HA restarts without needing re-detection every
+            # time.  We do NOT call async_update_entry here because that
+            # triggers the update listener → async_reload → infinite loop.
+            # Instead we write directly to entry.data (in-place) so the
+            # change is saved at HA's next config persistence cycle.
+            _LOGGER.debug("Updated commandability flags for %d object(s)", 
+                         sum(1 for o in self.objects if o.get("commandable")))
+
+    async def _setup_subscriptions_background(self) -> None:
+        """Run COV subscription setup in the background.
+
+        This wrapper ensures exceptions don't crash HA and logs clearly
+        when COV setup starts and finishes.
+        """
+        try:
+            _LOGGER.info("Starting background COV subscription setup")
+            await self._setup_subscriptions()
+            _LOGGER.info("Background COV subscription setup complete")
+        except asyncio.CancelledError:
+            _LOGGER.debug("Background COV setup was cancelled")
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Background COV subscription setup failed")
 
     async def _setup_subscriptions(self) -> None:
         """Attempt COV subscriptions for all objects. Objects that fail get polled."""
@@ -264,6 +336,14 @@ class BACnetCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_shutdown(self) -> None:
         """Cancel all COV subscriptions and clean up."""
+        # Cancel background COV setup if still running
+        if self._cov_setup_task is not None and not self._cov_setup_task.done():
+            self._cov_setup_task.cancel()
+            try:
+                await self._cov_setup_task
+            except asyncio.CancelledError:
+                pass
+
         await self.client.unsubscribe_all_cov()
         self._cov_subscriptions.clear()
         self._polled_objects.clear()

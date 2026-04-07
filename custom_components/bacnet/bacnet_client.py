@@ -914,6 +914,44 @@ class BACnetClient:
             return None
 
     # ------------------------------------------------------------------
+    # Commandability check (for re-detection on coordinator startup)
+    # ------------------------------------------------------------------
+
+    async def check_commandable(
+        self,
+        device_address: str,
+        object_type: int,
+        instance: int,
+    ) -> bool:
+        """Check if a Value object is commandable (has Priority Array or Relinquish Default).
+
+        This is used during coordinator startup to re-detect commandability
+        for AV/BV/MSV objects that may have been missed during initial
+        config-flow discovery.
+
+        Returns True if the object is commandable, False otherwise.
+        """
+        if self._app is None:
+            return False
+
+        addr = Address(device_address)
+        type_str = self._int_to_object_type_str(object_type)
+        oid = ObjectIdentifier((type_str, instance))
+
+        # Try priorityArray first — if readable, the object is commandable
+        pa = await self._safe_read(addr, oid, "priorityArray")
+        if pa is not None:
+            return True
+
+        # Fall back to relinquishDefault — some devices expose this without
+        # priorityArray, but it still indicates the object is commandable
+        rd = await self._safe_read(addr, oid, "relinquishDefault")
+        if rd is not None:
+            return True
+
+        return False
+
+    # ------------------------------------------------------------------
     # Single property read (for coordinator polling)
     # ------------------------------------------------------------------
 
@@ -1141,7 +1179,7 @@ class BACnetClient:
 
             # Give the task a moment to start and send the SubscribeCOV request.
             # If the device rejects instantly we will know.
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.05)
             if task.done():
                 exc = task.exception()
                 if exc:

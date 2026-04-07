@@ -39,3 +39,7 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Copilot rules & skills (local development only)
+.github/copilot-rules.md
+.github/skills/
